@@ -28,10 +28,10 @@ def main():
     """
     creds = None
 
-    # # print('%s',mido.get_input_names())
-	# device = 'HAPAX'
-	# channel = 15 # base 0
-	# note = 49 # the chime
+    # print('%s',mido.get_input_names())
+    device = 'HAPAX'
+    channel = 15 # base 0
+    note = 49 # the chime
 
 	# n_minutes_warning = 1
 
@@ -55,17 +55,15 @@ def main():
     try:
         service = build('calendar', 'v3', credentials=creds)
 
+        
+       
         # Call the Calendar API
         now = datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
-        print('Getting the upcoming 10 events')
+        print('Fetching upcoming events')
         events_result = service.events().list(calendarId='primary', timeMin=now,
                                               maxResults=3, singleEvents=True,
                                               orderBy='startTime').execute()
         events = events_result.get('items', [])
-
-        if not events:
-            print('No upcoming events found.')
-            return
 
         # Prints the start and name of the next 10 events
         next_event = None
@@ -76,19 +74,31 @@ def main():
             # pdb.set_trace()
 
             if not next_event:
-            	if (start_dt_utc > now_dt_utc):
-            		next_event = events_result
-            		next_start_time = start_dt_utc
-
+                if (start_dt_utc > now_dt_utc):
+                    next_event = event
+                    next_start_time = start_dt_utc
+        
+        
         while(1):
-	        for event in events:
-	            if (next_start_time == datetime.now(pytz.utc)):
-	                print(event['summary'] ,'is starting!')
-	                time.sleep(1)
+            if (datetime.now(pytz.utc) == next_start_time):
+                print(next_event['summary'] ,'is starting!')
+                bong(1, device, channel, note)
+                # pdb.set_trace()
+                time.sleep(1)
 
 
     except HttpError as error:
         print('An error occurred: %s' % error)
+
+def bong(n, device, channel, note):
+	outport = mido.open_output(device)
+	on_msg = mido.Message('note_on', channel=channel, note=note)
+	off_msg = mido.Message('note_off', channel=channel, note=note)
+	for x in range(n):
+		outport.send(on_msg)
+		time.sleep(0.2)
+		outport.send(off_msg)
+		time.sleep(2)
 
 
 if __name__ == '__main__':
