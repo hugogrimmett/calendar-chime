@@ -1,4 +1,11 @@
-#  pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi pytz
+# Hugo Grimmett
+# October 2022
+#
+# This script rings a bell controlled by the MIDI robot whenever a google calendar event is starting
+#
+#
+# To install necessary packages:
+# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi pytz
 
 from __future__ import print_function
 
@@ -26,6 +33,7 @@ next_event = None
 next_start_time = None
 lock = threading.Lock()
 creds = None
+email = 'hugo.grimmett@gmail.com'
 # service = None
 
 def main():
@@ -60,27 +68,29 @@ def main():
             token.write(creds.to_json())
 
     try:
-        getNextEvent() # returns global next_event
+        getNextEvent() # returns global next_event and next_start_time
         while(1):
             with lock:
-                if (datetime.now(pytz.utc) == next_start_time):
-                    print(next_event['summary'] ,'is starting!')
-                    bong(1, device, channel, note)
-                    # pdb.set_trace()
-                    time.sleep(1)
+            	if (next_event): # if there are no valid next events, then just cycle
+                    if (datetime.now(pytz.utc) == next_start_time):
+                        print(next_event['summary'] ,'is starting!')
+                        bong(1, device, channel, note)
+                        # pdb.set_trace()
+                        time.sleep(1)
 
 
     except HttpError as error:
         print('An error occurred: %s' % error)
 
 def getNextEvent():
-    threading.Timer(10, getNextEvent).start()
+    threading.Timer(60, getNextEvent).start()
     global next_event
     global next_start_time
     global creds
+    global email
     # Call the Calendar API
     now = datetime.utcnow().isoformat() + 'Z'
-    print('Fetching upcoming events')
+    # print('Fetching upcoming events')
     service = build('calendar', 'v3', credentials=creds)
     events_result = service.events().list(calendarId='primary', timeMin=now,
                                           maxResults=3, singleEvents=True,
@@ -95,13 +105,20 @@ def getNextEvent():
         start_dt = datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
         start_dt_utc = start_dt.astimezone(pytz.utc)
         now_dt_utc = datetime.now(pytz.utc)
-        # pdb.set_trace()
+        
 
         if not next_event:
-            if (start_dt_utc > now_dt_utc):
-                with lock:
-                    next_event = event
-                    next_start_time = start_dt_utc
+            # pdb.set_trace()
+            if "attendees" in event: # only continue if the event has other people in it
+                for attendee in event['attendees']: # only continue if I have accepted the meeting
+                    # print(attendee['email'],' : ', attendee['responseStatus'])
+                    if (attendee['email'] == email) and (attendee['responseStatus'] == 'accepted'):
+                        if (start_dt_utc > now_dt_utc):
+                            with lock:
+                                next_event = event
+                                next_start_time = start_dt_utc
+                                # print('next chime event is ', next_event, 'at', next_start_time)
+                                # pdb.set_trace()
 
 def bong(n, device, channel, note):
 	outport = mido.open_output(device)
@@ -111,7 +128,8 @@ def bong(n, device, channel, note):
 		outport.send(on_msg)
 		time.sleep(0.2)
 		outport.send(off_msg)
-		time.sleep(2)
+		if n > 1:
+			time.sleep(2)
 
 
 if __name__ == '__main__':
