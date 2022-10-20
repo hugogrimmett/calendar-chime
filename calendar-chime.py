@@ -8,6 +8,8 @@ import mido
 import time
 import pdb
 import pytz
+import threading
+
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -20,13 +22,18 @@ from datetime import datetime
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-
+next_event = None
+next_start_time = None
+lock = threading.Lock()
+creds = None
+# service = None
 
 def main():
     """Shows basic usage of the Google Calendar API.
     Prints the start and name of the next 10 events on the user's calendar.
     """
-    creds = None
+    # creds = None
+    global creds
 
     # print('%s',mido.get_input_names())
     device = 'HAPAX'
@@ -53,42 +60,48 @@ def main():
             token.write(creds.to_json())
 
     try:
-        service = build('calendar', 'v3', credentials=creds)
-
-        
-       
-        # Call the Calendar API
-        now = datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
-        print('Fetching upcoming events')
-        events_result = service.events().list(calendarId='primary', timeMin=now,
-                                              maxResults=3, singleEvents=True,
-                                              orderBy='startTime').execute()
-        events = events_result.get('items', [])
-
-        # Prints the start and name of the next 10 events
-        next_event = None
-        for event in events:
-            start_dt = datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
-            start_dt_utc = start_dt.astimezone(pytz.utc)
-            now_dt_utc = datetime.now(pytz.utc)
-            # pdb.set_trace()
-
-            if not next_event:
-                if (start_dt_utc > now_dt_utc):
-                    next_event = event
-                    next_start_time = start_dt_utc
-        
-        
+        getNextEvent() # returns global next_event
         while(1):
-            if (datetime.now(pytz.utc) == next_start_time):
-                print(next_event['summary'] ,'is starting!')
-                bong(1, device, channel, note)
-                # pdb.set_trace()
-                time.sleep(1)
+            with lock:
+                if (datetime.now(pytz.utc) == next_start_time):
+                    print(next_event['summary'] ,'is starting!')
+                    bong(1, device, channel, note)
+                    # pdb.set_trace()
+                    time.sleep(1)
 
 
     except HttpError as error:
         print('An error occurred: %s' % error)
+
+def getNextEvent():
+    threading.Timer(10, getNextEvent).start()
+    global next_event
+    global next_start_time
+    global creds
+    # Call the Calendar API
+    now = datetime.utcnow().isoformat() + 'Z'
+    print('Fetching upcoming events')
+    service = build('calendar', 'v3', credentials=creds)
+    events_result = service.events().list(calendarId='primary', timeMin=now,
+                                          maxResults=3, singleEvents=True,
+                                          orderBy='startTime').execute()
+    events = events_result.get('items', [])
+    if not events:
+        print('No upcoming events found.')
+        exit
+
+    next_event = None
+    for event in events:
+        start_dt = datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
+        start_dt_utc = start_dt.astimezone(pytz.utc)
+        now_dt_utc = datetime.now(pytz.utc)
+        # pdb.set_trace()
+
+        if not next_event:
+            if (start_dt_utc > now_dt_utc):
+                with lock:
+                    next_event = event
+                    next_start_time = start_dt_utc
 
 def bong(n, device, channel, note):
 	outport = mido.open_output(device)
