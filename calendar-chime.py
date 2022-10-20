@@ -2,6 +2,7 @@
 # October 2022
 #
 # This script rings a bell controlled by the MIDI robot whenever a google calendar event is starting
+# The calendar event must involve at least one other participant, and have been accepted by me
 #
 #
 # To install necessary packages:
@@ -90,7 +91,6 @@ def getNextEvent():
     global email
     # Call the Calendar API
     now = datetime.utcnow().isoformat() + 'Z'
-    # print('Fetching upcoming events')
     service = build('calendar', 'v3', credentials=creds)
     events_result = service.events().list(calendarId='primary', timeMin=now,
                                           maxResults=3, singleEvents=True,
@@ -111,7 +111,6 @@ def getNextEvent():
             # pdb.set_trace()
             if "attendees" in event: # only continue if the event has other people in it
                 for attendee in event['attendees']: # only continue if I have accepted the meeting
-                    # print(attendee['email'],' : ', attendee['responseStatus'])
                     if (attendee['email'] == email) and (attendee['responseStatus'] == 'accepted'):
                         if (start_dt_utc > now_dt_utc):
                             with lock:
