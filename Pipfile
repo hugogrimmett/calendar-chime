@@ -10,6 +10,7 @@ google-auth-oauthlib = "*"
 mido = "*"
 python-rtmidi = "*"
 pytz = "*"
+phue = "*"
 
 [dev-packages]
 

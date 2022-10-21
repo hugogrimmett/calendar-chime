@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "4207051a822d69030d3d50f7fc0ca086de95ad127a06a9c9254dd05bf79c7b2c"
+            "sha256": "9935e0b0ed8baeb55ad751976fda1c0929267d26c29f3f781b2833836fc95b59"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -119,6 +119,13 @@
             ],
             "markers": "python_version >= '3.6'",
             "version": "==3.2.2"
+        },
+        "phue": {
+            "hashes": [
+                "sha256:61facc991a2ead1d727df8513d06ce089033489b6dca09be093db24f7cdb8874"
+            ],
+            "index": "pypi",
+            "version": "==1.1"
         },
         "protobuf": {
             "hashes": [
