@@ -83,9 +83,10 @@ def main():
             	if (next_event): # if there are no valid next events, then just cycle
                     if (datetime.now(pytz.utc) == next_start_time):
                         print(next_event['summary'] ,'is starting!')
-                        b.activate_scene(1,'aoYhBTLiGLJYEYy') # activate video call scene in office
                         bong(1, device, channel, note)
                         # pdb.set_trace()
+                        # time.sleep(0.95)
+                        b.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
                         time.sleep(1)
 
 
