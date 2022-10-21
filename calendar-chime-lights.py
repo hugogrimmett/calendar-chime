@@ -28,7 +28,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from mido import Message
-from datetime import datetime
 from phue import Bridge
 
 
@@ -52,6 +51,7 @@ def main():
     device = 'HAPAX'
     channel = 15 # base 0
     note = 49 # the chime
+    warning_time_seconds = 15 # how long before the meeting things should happen
 
     # connect to philips hue bridge
     b = Bridge('192.168.178.96')
@@ -81,7 +81,7 @@ def main():
         while(1):
             with lock:
             	if (next_event): # if there are no valid next events, then just cycle
-                    if (datetime.now(pytz.utc) == next_start_time):
+                    if (datetime.datetime.now(pytz.utc) == next_start_time - datetime.timedelta(seconds=warning_time_seconds)):
                         print(next_event['summary'] ,'is starting!')
                         bong(1, device, channel, note)
                         # pdb.set_trace()
@@ -100,7 +100,7 @@ def getNextEvent():
     global creds
     global email
     # Call the Calendar API
-    now = datetime.utcnow().isoformat() + 'Z'
+    now = datetime.datetime.utcnow().isoformat() + 'Z'
     service = build('calendar', 'v3', credentials=creds)
     events_result = service.events().list(calendarId='primary', timeMin=now,
                                           maxResults=3, singleEvents=True,
@@ -112,9 +112,9 @@ def getNextEvent():
 
     next_event = None
     for event in events:
-        start_dt = datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
+        start_dt = datetime.datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
         start_dt_utc = start_dt.astimezone(pytz.utc)
-        now_dt_utc = datetime.now(pytz.utc)
+        now_dt_utc = datetime.datetime.now(pytz.utc)
         
 
         if not next_event:
