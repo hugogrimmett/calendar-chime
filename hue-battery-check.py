@@ -36,12 +36,16 @@ def checkSensorBatteryLevels(bridge):
     # print(sensors)
     # print(len(sensors))
     # pdb.set_trace()
+    counter = 0
     for sensor in sensors:
         config = sensor._get('config')
         if "battery" in config:
             # print(sensor._get('name'), ' - ', config['battery'])
             if config['battery'] < 15:
                 print('Warning: ', sensor._get('name'), ' battery is low (',config['battery'],'%)')
+                counter += 1
+    if counter == 0:
+        print('All good - no sensors have < 15% battery')
 
 if __name__ == '__main__':
     main()

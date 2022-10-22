@@ -54,8 +54,8 @@ def main():
     warning_time_seconds = 15 # how long before the meeting things should happen
 
     # connect to philips hue bridge
-    b = Bridge('192.168.178.96')
-    b.connect()
+    bridge = Bridge('192.168.178.96')
+    bridge.connect()
 
 	# n_minutes_warning = 1
 
@@ -86,7 +86,7 @@ def main():
                         bong(1, device, channel, note)
                         # pdb.set_trace()
                         # time.sleep(0.95)
-                        b.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
+                        bridge.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
                         time.sleep(1)
 
 
