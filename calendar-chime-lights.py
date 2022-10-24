@@ -38,7 +38,7 @@ next_start_time = None
 lock = threading.Lock()
 creds = None
 email = 'hugo.grimmett@woven-planet.global'
-debug = 0
+debug = 1
 # service = None
 
 def main():
@@ -86,7 +86,6 @@ def main():
                         print('🔔🎥 ',next_event['summary'] ,'is starting now! 🎥🔔')
                         bong(1, device, channel, note)
                         # pdb.set_trace()
-                        # time.sleep(0.95)
                         bridge.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
                         time.sleep(1)
 
@@ -95,7 +94,7 @@ def main():
         print('An error occurred: %s' % error)
 
 def getNextEvent():
-    threading.Timer(60, getNextEvent).start()
+    # threading.Timer(60, getNextEvent).start()
     global next_event
     global next_start_time
     global creds
@@ -120,8 +119,8 @@ def getNextEvent():
     for event in events:
         # pdb.set_trace()
         if (debug): print(event['start'],' - ',event['summary'])
-        if 'dateTime' in event['start']: # exclude all-day events (which have 'date' but not 'dateTime')
-            if (debug): print('   ✅ Not all-day event')
+        if ('dateTime' in event['start']) and (event['eventType'] == 'default'): # exclude all-day events (which have 'date' but not 'dateTime'), and OOO and focus time events
+            if (debug): print('   ✅ Not all-day, OOO, or focus-time event')
             start_dt = datetime.datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
             start_dt_utc = start_dt.astimezone(pytz.utc)
             now_dt_utc = datetime.datetime.now(pytz.utc)
@@ -142,10 +141,18 @@ def getNextEvent():
                                     if (debug): print('   🔔 This is the next chime event!')
                                     break
                                     # pdb.set_trace()
-        # elif (debug): print('   ❌ All-day event')
-        #         elif (debug): print('   ❌ No other attendees')
-        #                 elif (debug): print('   ❌ I am not marked as attending')
-        #                     elif (debug): print('   ❌ Already started')
+                            else:
+                                if (debug): print('   ❌ Already started')
+                        else:
+                            if (debug): print('   ❌ I am not marked as attending')
+                            pdb.set_trace()
+                else:
+                    if (debug): print('   ❌ No other attendees')
+        else:
+            if (debug): print('   ❌ All-day, OOO, or focus-time event')
+
+
+
 
 def bong(n, device, channel, note):
 	outport = mido.open_output(device)
