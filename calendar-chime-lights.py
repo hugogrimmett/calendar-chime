@@ -119,37 +119,49 @@ def getNextEvent():
     for event in events:
         # pdb.set_trace()
         if (debug): print(event['start'],' - ',event['summary'])
-        if ('dateTime' in event['start']) and (event['eventType'] == 'default'): # exclude all-day events (which have 'date' but not 'dateTime'), and OOO and focus time events
+        
+        # Exclude all-day, OOO, and focus-time events (which have 'date' but not 'dateTime'), and OOO and focus time events
+        if ('dateTime' in event['start']) and (event['eventType'] == 'default'): 
             if (debug): print('   ✅ Not all-day, OOO, or focus-time event')
             start_dt = datetime.datetime.strptime(event['start'].get('dateTime'),'%Y-%m-%dT%H:%M:%S%z')
             start_dt_utc = start_dt.astimezone(pytz.utc)
             now_dt_utc = datetime.datetime.now(pytz.utc)
-            
-
-            if not next_event:
-                # pdb.set_trace()
-                if "attendees" in event: # only continue if the event has other people in it
-                    if (debug): print('   ✅ Has other attendees')
-                    for attendee in event['attendees']: # only continue if I have accepted the meeting
-                        if (attendee['email'] == email) and (attendee['responseStatus'] == 'accepted'):
-                            if (debug): print('   ✅ I am marked as attending')
-                            if (start_dt_utc > now_dt_utc):
-                                if (debug): print('   ✅ Starts in the future')
-                                with lock:
-                                    next_event = event
-                                    next_start_time = start_dt_utc
-                                    if (debug): print('   🔔 This is the next chime event!')
-                                    break
-                                    # pdb.set_trace()
-                            else:
-                                if (debug): print('   ❌ Already started')
-                        else:
-                            if (debug): print('   ❌ I am not marked as attending')
-                            pdb.set_trace()
-                else:
-                    if (debug): print('   ❌ No other attendees')
         else:
             if (debug): print('   ❌ All-day, OOO, or focus-time event')
+            continue
+            
+        # Exclude events for which I am the only attendee
+        if "attendees" in event: 
+            if (debug): print('   ✅ Has other attendees')
+        else:
+            if (debug): print('   ❌ No other attendees')
+            continue
+
+        # Exclude events that I haven't accepted
+        attending = 0
+        for attendee in event['attendees']: 
+            if (attendee['email'] == email) and (attendee['responseStatus'] == 'accepted'):
+                if (debug): print('   ✅ I am marked as attending')
+                attending = 1
+                break
+        if not attending:
+            if (debug): print('   ❌ I am not marked as attending')
+            continue
+                
+        # Exclude events that started in the past
+        if (start_dt_utc > now_dt_utc):
+            if (debug): print('   ✅ Starts in the future')
+            with lock:
+                next_event = event
+                next_start_time = start_dt_utc
+                if (debug): print('   🔔 This is the next chime event!')
+                break
+                # pdb.set_trace()
+        else:
+            if (debug): print('   ❌ Already started')
+            
+        
+            
 
 
 
