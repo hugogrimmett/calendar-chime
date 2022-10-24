@@ -89,12 +89,13 @@ def main():
                         bridge.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
                         time.sleep(1)
 
-
     except HttpError as error:
         print('An error occurred: %s' % error)
 
+
+
 def getNextEvent():
-    # threading.Timer(60, getNextEvent).start()
+    threading.Timer(60, getNextEvent).start()
     global next_event
     global next_start_time
     global creds
@@ -159,11 +160,6 @@ def getNextEvent():
                 # pdb.set_trace()
         else:
             if (debug): print('   ❌ Already started')
-            
-        
-            
-
-
 
 
 def bong(n, device, channel, note):
