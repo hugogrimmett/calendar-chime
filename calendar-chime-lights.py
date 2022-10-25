@@ -92,7 +92,7 @@ def main():
     except HttpError as error:
         print('An error occurred: %s' % error)
 
-
+# bug report: "busy from now" event is a chime event, when it should not be. Error is in whether it has other attendees or not.
 
 def getNextEvent():
     threading.Timer(60, getNextEvent).start()
