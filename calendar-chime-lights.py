@@ -9,6 +9,8 @@
 # To install necessary packages:
 # pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi pytz phue
 
+# bug 2023-01-12: if the hapax is turned off or disconnected, the lights don't come on either
+
 from __future__ import print_function
 
 import datetime
@@ -39,6 +41,8 @@ lock = threading.Lock()
 creds = None
 email = 'hugo.grimmett@woven-planet.global'
 debug = 1
+max_time = 0
+global bridge
 # service = None
 
 def main():
@@ -47,6 +51,8 @@ def main():
     """
     # creds = None
     global creds
+    global max_time
+    global bridge
 
     # print('%s',mido.get_input_names())
     device = 'HAPAX'
@@ -78,29 +84,48 @@ def main():
             token.write(creds.to_json())
 
     try:
+        #GD: avoid loops that try things all the time. Use select() function instead. It waits for a signal and is very low level
+        # while(1) loop with select that is waiting for a queue of events. Second thread pushes new events to the queue.
+        # alternatively, use cron to run code in the future at a particular time. Will need a dictionary of what events were already 
+        # sent to the cron job. 
+        # advent of code
         getNextEvent() # returns global next_event and next_start_time
         while(1):
-            with lock:
+            tic = time.time()
+            chime = 0 # change to true / false
+            with lock: 
             	if (next_event): # if there are no valid next events, then just cycle
-                    if (datetime.datetime.now(pytz.utc) == next_start_time - datetime.timedelta(seconds=warning_time_seconds)):
+                    if (datetime.datetime.now(pytz.utc) == next_start_time - datetime.timedelta(seconds=warning_time_seconds)): # .replace(microseconds=0)
                         print('🔔🎥 ',next_event['summary'] ,'is starting now! 🎥🔔')
-                        bong(1, device, channel, note)
+                        try:
+                            bong(1, device, channel, note)
+                        except:
+                            print('⚠️  ERROR: could not play a sound ⚠️')
                         # pdb.set_trace()
-                        bridge.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
+                        try: 
+                            bridge.activate_scene(1,'aoYhBTLiGLJYEYy',0) # activate video call scene in office
+                        except:
+                            print('⚠️  ERROR: could not turn the lights on ⚠️') 
                         time.sleep(1)
+                        chime = 1
+            toc = time.time()
+            if (toc > max_time) & (chime == 0):
+                    max_time = max(max_time,toc-tic)
+            # print(toc-tic, 'sec elapsed')
 
     except HttpError as error:
         print('An error occurred: %s' % error)
 
-# bug report: "busy from now" event is a chime event, when it should not be. Error is in whether it has other attendees or not.
 
 def getNextEvent():
+    tic = time.time()
     threading.Timer(60, getNextEvent).start()
     global next_event
     global next_start_time
     global creds
     global email
     global debug
+    global max_time
     # Call the Calendar API
     now = datetime.datetime.utcnow().isoformat() + 'Z'
     service = build('calendar', 'v3', credentials=creds)
@@ -156,10 +181,17 @@ def getNextEvent():
                 next_event = event
                 next_start_time = start_dt_utc
                 if (debug): print('   🔔 This is the next chime event!')
+                # print(start_dt_utc)
                 break
                 # pdb.set_trace()
         else:
             if (debug): print('   ❌ Already started')
+
+    # pdb.set_trace()
+    checkSensorBatteryLevels(bridge)
+    toc = time.time()
+    print('Calendar check time: ', round(toc-tic,2), 's')
+    print('Max small loop time: ', '%.2g' % max_time, 's')
 
 
 def bong(n, device, channel, note):
@@ -172,6 +204,22 @@ def bong(n, device, channel, note):
 		outport.send(off_msg)
 		if n > 1:
 			time.sleep(2)
+
+
+def checkSensorBatteryLevels(bridge):
+    sensor_names = bridge.get_sensor_objects('name')
+    sensor_ids = bridge.get_sensor_objects('id')
+    sensors = bridge.get_sensor_objects()
+    counter = 0
+    for sensor in sensors:
+        config = sensor._get('config')
+        if "battery" in config:
+            # print(sensor._get('name'), ' - ', config['battery'])
+            if config['battery'] < 15:
+                print('🔋🚨: ', sensor._get('name'), ' battery is low (',config['battery'],'%)')
+                counter += 1
+    if counter == 0:
+        print('🔋: all good - no sensors have < 15% battery')
 
 
 if __name__ == '__main__':
