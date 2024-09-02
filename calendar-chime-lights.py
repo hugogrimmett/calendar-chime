@@ -21,6 +21,7 @@ import pdb
 import pytz
 import threading
 import phue
+import discoverhue # for finding the bridge
 
 
 from google.auth.transport.requests import Request
@@ -31,6 +32,8 @@ from googleapiclient.errors import HttpError
 
 from mido import Message
 from phue import Bridge
+from phue import PhueRegistrationException
+
 
 
 # If modifying these scopes, delete the file token.json.
@@ -39,7 +42,7 @@ next_event = None
 next_start_time = None
 lock = threading.Lock()
 creds = None
-email = 'hugo.grimmett@woven-planet.global'
+email = 'hugo.grimmett@zencohen.io'
 debug = 1
 max_time = 0
 global bridge
@@ -61,8 +64,16 @@ def main():
     warning_time_seconds = 15 # how long before the meeting things should happen
 
     # connect to philips hue bridge
-    bridge = Bridge('192.168.178.96')
-    bridge.connect()
+    ip_address = get_hue_bridge_ip()
+    # print('ip_address: {}'.format(ip_address))
+    try:
+        bridge = Bridge(ip_address)
+        bridge.connect()
+        print("Successfully connected to the Hue bridge.")
+    except: 
+        print("Failed to connect to the Hue bridge. Make sure you pressed the link button, and try again.")
+        exit()
+    
 
 	# n_minutes_warning = 1
 
@@ -205,6 +216,57 @@ def bong(n, device, channel, note):
 		if n > 1:
 			time.sleep(2)
 
+
+def get_hue_bridge_ip(filename="settings_hue-bridge-ip.txt"):
+    # Check if the file exists
+    if os.path.exists(filename):
+        # If the file exists, open it and read the contents
+        with open(filename, 'r') as file:
+            ip_address = file.read().strip()
+        return ip_address
+    else:
+        # If the file doesn't exist, prompt the user to enter an IP address
+        # ip_address = input("Enter the Hue Bridge IP address: ").strip()
+        print('No bridge ip address config file found, so scanning for available bridges:')
+        bridges = discoverhue.find_bridges()
+
+        for i, (key, value) in enumerate(bridges.items(), start=1):
+            print(f".  {i}: {key} - {value}")
+
+        # If there's more than one item, ask the user to choose
+        if len(bridges) > 1:
+            choice = int(input("Choose the number of the bridge you want to use: "))
+            ip_address = list(bridges.values())[choice - 1]
+        else:
+            ip_address = next(iter(bridges.values()))  # Automatically choose the single item
+
+        ip_address = ip_address.rstrip('/')
+        ip_address = ip_address.lstrip('http://')
+
+        print(f"The selected IP address is: {ip_address}")
+
+        # Save the IP address to the file
+        with open(filename, 'w') as file:
+            file.write(ip_address)
+        
+        return ip_address
+
+def get_email(filename="settings_email.txt"):
+    # Check if the file exists
+    if os.path.exists(filename):
+        # If the file exists, open it and read the contents
+        with open(filename, 'r') as file:
+            email_address = file.read().strip()
+        return email_address
+    else:
+        # If the file doesn't exist, prompt the user to enter an email address
+        email_address = input("Enter the email address for your google calendar: ").strip()
+        
+        # Save the email address to the file
+        with open(filename, 'w') as file:
+            file.write(email_address)
+        
+        return email_address
 
 def checkSensorBatteryLevels(bridge):
     sensor_names = bridge.get_sensor_objects('name')
