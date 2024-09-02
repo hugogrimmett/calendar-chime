@@ -9,10 +9,10 @@ pyenv install 3.8.15
 
 Packages required: 
 ```
-pip install phue pytz mido google-auth google-auth-oauthlib google-api-python-client discoverhue
+pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue apscheduler
 ```
 
-The latest script is calendar-chime-lights.py:
+The latest script is meeting-start-reminder.py:
 ```
-python calendar-chime-lights.py
+python meeting-start-reminder.py
 ```
