@@ -7,7 +7,7 @@
 #
 #
 # To install necessary packages:
-# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi pytz phue apscheduler
+# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue apscheduler
 
 from __future__ import print_function
 
@@ -37,7 +37,9 @@ creds = None
 email = None
 lock = threading.Lock()
 bridge = None
-max_time = 0
+scheduler = BackgroundScheduler()
+event_triggered = False  # Flag to track if the event action has been triggered
+
 debug = 1
 
 # Main function
@@ -73,16 +75,14 @@ def main():
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
-    # Start the scheduler to check for the next event
-    schedule_event_check()
-
-def schedule_event_check():
-    scheduler = BackgroundScheduler()
+    getNextEvent() # run the first time
     scheduler.add_job(getNextEvent, 'interval', minutes=1)
-    print("Job scheduled for getNextEvent")  # Add this line to confirm scheduling
+    if (debug): print("Job scheduled for getNextEvent")
     scheduler.start()
-    print("Job started") 
+    if (debug): print("Scheduler started")
 
+    # Start a thread to continuously check event timing
+    threading.Thread(target=continuous_event_check, daemon=True).start()
 
     try:
         while True:
@@ -91,15 +91,12 @@ def schedule_event_check():
         scheduler.shutdown()
 
 def getNextEvent():
-    print("getNextEvent called", flush=True)
-    global next_event, next_start_time, creds, email, max_time
+    if (debug): print("getNextEvent called", flush=True)
+    global next_event, next_start_time, creds, email, event_triggered
 
-    tic = time.time()
+    # tic = time.time()
     with lock:
         try:
-
-            print('got to part 1')
-            # Call the Calendar API
             now = datetime.datetime.utcnow().isoformat() + 'Z'
             service = build('calendar', 'v3', credentials=creds)
             events_result = service.events().list(calendarId='primary', timeMin=now,
@@ -109,8 +106,6 @@ def getNextEvent():
             if not events:
                 print('No upcoming events found.')
                 return
-
-            print('got to part 2')
 
             next_event = None
             for event in events:
@@ -128,43 +123,55 @@ def getNextEvent():
                         next_start_time = start_dt_utc
                         break
 
-            print('got to part 3')
             if next_event:
-                check_event_time()
+                print(f"Next event set to: {next_event['summary']} at {next_start_time}")
+                event_triggered = False  # Reset the flag for new event
             else:
                 print('No valid upcoming events found.')
+                # Clear the event details if no valid events
+                next_event = None
+                next_start_time = None
 
         except HttpError as error:
             print(f'An error occurred: {error}')
 
-    toc = time.time()
-    print('Calendar check time: ', round(toc - tic, 2), 's')
-    print('Max small loop time: ', '%.2g' % max_time, 's')
-
-def check_event_time():
-    print("checking event time", flush=True)
-    global next_event, next_start_time, max_time, bridge
+def continuous_event_check():
+    if (debug): print("Continuous event check started", flush=True)
+    global next_event, next_start_time, bridge, event_triggered
 
     tolerance_seconds = 5
     warning_time_seconds = 15
 
     while True:
-        time.sleep(1)
         with lock:
+            now = datetime.datetime.now(pytz.utc)
             if next_event:
-                event_start_window = next_start_time - datetime.timedelta(seconds=warning_time_seconds)
-                now = datetime.datetime.now(pytz.utc)
-                if event_start_window <= now < event_start_window + datetime.timedelta(seconds=tolerance_seconds):
-                    print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
-                    try:
-                        bong(1, 'HAPAX', 15, 49)
-                    except Exception as e:
-                        print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
-                    try:
-                        bridge.activate_scene(1, 'aoYhBTLiGLJYEYy', 0)  # activate video call scene in office
-                    except Exception as e:
-                        print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
-                    break
+                time_diff = (next_start_time - now).total_seconds()
+                if 0 <= time_diff <= warning_time_seconds:
+                    if not event_triggered:
+                        print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
+                        try:
+                            bong(1, 'HAPAX', 15, 49)
+                        except Exception as e:
+                            print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
+                        try:
+                            bridge.activate_scene(1, 'aoYhBTLiGLJYEYy', 0)  # activate video call scene in office
+                        except Exception as e:
+                            print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
+                        event_triggered = True  # Set the flag to indicate the event action has been triggered
+                    else:
+                        if (debug): print('event already triggered')
+                elif time_diff < 2:
+                    # if we are past the warning window, clear the event
+                    next_event = None
+                    next_start_time = None
+                    event_triggered = False  # Reset the trigger flag
+                else:
+                    if (debug): print(f"Event '{next_event['summary']}' is not yet within the time window.")
+            else:
+                if (debug): print("No upcoming event found.")
+        time.sleep(1)  # Check every second
+
 
 def bong(n, device, channel, note):
     outport = mido.open_output(device)
