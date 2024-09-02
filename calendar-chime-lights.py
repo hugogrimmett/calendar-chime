@@ -34,6 +34,23 @@ from mido import Message
 from phue import Bridge
 from phue import PhueRegistrationException
 
+def get_email(filename="settings_email.txt"):
+    # Check if the file exists
+    if os.path.exists(filename):
+        # If the file exists, open it and read the contents
+        with open(filename, 'r') as file:
+            email_address = file.read().strip()
+            print('Chosen email address: {email_address}')
+        return email_address
+    else:
+        # If the file doesn't exist, prompt the user to enter an email address
+        email_address = input("Enter the email address for your google calendar: ").strip()
+        
+        # Save the email address to the file
+        with open(filename, 'w') as file:
+            file.write(email_address)
+        
+        return email_address
 
 
 # If modifying these scopes, delete the file token.json.
@@ -42,7 +59,7 @@ next_event = None
 next_start_time = None
 lock = threading.Lock()
 creds = None
-email = 'hugo.grimmett@zencohen.io'
+email = get_email()
 debug = 1
 max_time = 0
 global bridge
@@ -87,9 +104,12 @@ def main():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+                creds = flow.run_local_server(port=0)
+            except FileNotFoundError:
+                print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console.")
+                return
         # Save the credentials for the next run
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
@@ -257,6 +277,7 @@ def get_email(filename="settings_email.txt"):
         # If the file exists, open it and read the contents
         with open(filename, 'r') as file:
             email_address = file.read().strip()
+            print('Chosen email address: {email_address}')
         return email_address
     else:
         # If the file doesn't exist, prompt the user to enter an email address
