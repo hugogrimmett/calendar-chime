@@ -9,7 +9,7 @@ pyenv install 3.8.15
 
 Packages required: 
 ```
-pip install phue pytz mido google-auth google-auth-oauthlib google-api-python-client
+pip install phue pytz mido google-auth google-auth-oauthlib google-api-python-client discoverhue
 ```
 
 The latest script is calendar-chime-lights.py:
