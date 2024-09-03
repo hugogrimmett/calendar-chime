@@ -32,6 +32,7 @@ from phue import Bridge
 # Global variables
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 next_event = None
+previous_next_event = None
 next_start_time = None
 creds = None
 email = None
@@ -40,7 +41,7 @@ bridge = None
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
-debug = 1
+debug = 0 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
@@ -54,7 +55,7 @@ def main():
     try:
         bridge = Bridge(ip_address)
         bridge.connect()
-        print("Successfully connected to the Hue bridge.")
+        print("Successfully connected to the Hue bridge ({}).".format(ip_address))
     except:
         print("Failed to connect to the Hue bridge. Make sure you pressed the link button, and try again.")
         return
@@ -70,13 +71,13 @@ def main():
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
                 creds = flow.run_local_server(port=0)
             except FileNotFoundError:
-                print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console.")
+                print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
                 return
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
     getNextEvent() # run the first time
-    scheduler.add_job(getNextEvent, 'interval', minutes=1)
+    scheduler.add_job(getNextEvent, 'interval', seconds=10)
     if (debug): print("Job scheduled for getNextEvent")
     scheduler.start()
     if (debug): print("Scheduler started")
@@ -92,9 +93,10 @@ def main():
 
 def getNextEvent():
     if (debug): print("getNextEvent called", flush=True)
-    global next_event, next_start_time, creds, email, event_triggered
+    global next_event, previous_next_event, next_start_time, creds, email, event_triggered
 
-    # tic = time.time()
+
+
     with lock:
         try:
             now = datetime.datetime.utcnow().isoformat() + 'Z'
@@ -107,7 +109,9 @@ def getNextEvent():
                 print('No upcoming events found.')
                 return
 
-            next_event = None
+            # next_event = None
+            # previous_next_event = None
+
             for event in events:
                 start_dt = None
                 if 'dateTime' in event['start'] and event['eventType'] == 'default':
@@ -119,15 +123,18 @@ def getNextEvent():
 
                 if 'attendees' in event and any(attendee['email'] == email and attendee['responseStatus'] == 'accepted' for attendee in event['attendees']):
                     if start_dt_utc > now_dt_utc:
+                        previous_next_event = next_event # save the previous "next_event" for comparison
                         next_event = event
                         next_start_time = start_dt_utc
                         break
 
             if next_event:
-                print(f"Next event set to: {next_event['summary']} at {next_start_time}")
+                # print('previous next event: {}'.format(previous_next_event))
+                # print('new next event: {}'.format(next_event))
+                if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {next_start_time}")
                 event_triggered = False  # Reset the flag for new event
             else:
-                print('No valid upcoming events found.')
+                print('No upcoming meetings found.')
                 # Clear the event details if no valid events
                 next_event = None
                 next_start_time = None
@@ -167,7 +174,7 @@ def continuous_event_check():
                     next_start_time = None
                     event_triggered = False  # Reset the trigger flag
                 else:
-                    if (debug): print(f"Event '{next_event['summary']}' is not yet within the time window.")
+                    if (debug): print(f"Event '{next_event['summary']}' is not yet within the time window ({warning_time_seconds}s).")
             else:
                 if (debug): print("No upcoming event found.")
         time.sleep(1)  # Check every second
