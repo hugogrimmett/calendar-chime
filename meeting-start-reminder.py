@@ -77,7 +77,7 @@ def main():
             token.write(creds.to_json())
 
     getNextEvent() # run the first time
-    scheduler.add_job(getNextEvent, 'interval', seconds=10)
+    scheduler.add_job(getNextEvent, 'interval', seconds=60)
     if (debug): print("Job scheduled for getNextEvent")
     scheduler.start()
     if (debug): print("Scheduler started")
