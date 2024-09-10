@@ -32,7 +32,7 @@ from phue import Bridge
 # Global variables
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 next_event = None
-previous_next_event = None
+previous_next_event = 1 # 1 to get it to print the next meeting status when you first run the script
 next_start_time = None
 creds = None
 email = None
@@ -77,7 +77,7 @@ def main():
             token.write(creds.to_json())
 
     getNextEvent() # run the first time
-    scheduler.add_job(getNextEvent, 'interval', seconds=60)
+    scheduler.add_job(getNextEvent, 'interval', seconds=60, coalesce=True, misfire_grace_time=60)
     if (debug): print("Job scheduled for getNextEvent")
     scheduler.start()
     if (debug): print("Scheduler started")
@@ -94,8 +94,6 @@ def main():
 def getNextEvent():
     if (debug): print("getNextEvent called", flush=True)
     global next_event, previous_next_event, next_start_time, creds, email, event_triggered
-
-
 
     with lock:
         try:
@@ -134,8 +132,9 @@ def getNextEvent():
                 if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {next_start_time}")
                 event_triggered = False  # Reset the flag for new event
             else:
-                print('No upcoming meetings found.')
+                if (debug) or (previous_next_event != next_event): print('No upcoming meetings found.')
                 # Clear the event details if no valid events
+                previous_next_event = None
                 next_event = None
                 next_start_time = None
 
