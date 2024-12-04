@@ -7,7 +7,7 @@
 #
 #
 # To install necessary packages:
-# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue apscheduler
+# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue discoverhue apscheduler
 
 from __future__ import print_function
 

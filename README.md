@@ -9,7 +9,7 @@ pyenv install 3.8.15
 
 Packages required: 
 ```
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue apscheduler
+pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue discoverhue apscheduler
 ```
 
 The latest script is meeting-start-reminder.py:
