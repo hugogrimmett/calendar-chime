@@ -34,21 +34,22 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 next_event = None
 previous_next_event = 1 # 1 to get it to print the next meeting status when you first run the script
 next_start_time = None
-creds = None
-email = None
+# creds = None
+# email = None
+account_emails = None
 lock = threading.Lock()
 bridge = None
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
-debug = 0 # 1 for verbose, 0 for basic output
+debug = 1 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
-    global creds, bridge, email
+    global account_emails, bridge
 
-    # Get email address
-    email = get_email()
+    # Get email addresses
+    account_emails = get_emails()
 
     # Initialize and connect to Philips Hue bridge
     ip_address = get_hue_bridge_ip()
@@ -60,21 +61,21 @@ def main():
         print("Failed to connect to the Hue bridge. Make sure you pressed the link button, and try again.")
         return
 
-    # Load or create credentials for Google Calendar API
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            try:
-                flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-                creds = flow.run_local_server(port=0)
-            except FileNotFoundError:
-                print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
-                return
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+    # # Load or create credentials for Google Calendar API
+    # if os.path.exists('token.json'):
+    #     creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    # if not creds or not creds.valid:
+    #     if creds and creds.expired and creds.refresh_token:
+    #         creds.refresh(Request())
+    #     else:
+    #         try:
+    #             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+    #             creds = flow.run_local_server(port=0)
+    #         except FileNotFoundError:
+    #             print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
+    #             return
+    #     with open('token.json', 'w') as token:
+    #         token.write(creds.to_json())
 
     getNextEvent() # run the first time
     scheduler.add_job(getNextEvent, 'interval', seconds=60, coalesce=True, misfire_grace_time=60)
@@ -93,43 +94,57 @@ def main():
 
 def getNextEvent():
     if (debug): print("getNextEvent called", flush=True)
-    global next_event, previous_next_event, next_start_time, creds, email, event_triggered
+    global next_event, previous_next_event, next_start_time, account_emails, event_triggered
 
     with lock:
         try:
             now = datetime.datetime.utcnow().isoformat() + 'Z'
-            service = build('calendar', 'v3', credentials=creds)
-            events_result = service.events().list(calendarId='primary', timeMin=now,
-                                                  maxResults=10, singleEvents=True,
-                                                  orderBy='startTime').execute()
-            events = events_result.get('items', [])
-            if not events:
-                print('No upcoming events found.')
-                return
+            earliest_event = None
+            earliest_start_time = None
+            next_email = None
 
-            # next_event = None
-            # previous_next_event = None
-
-            for event in events:
-                start_dt = None
-                if 'dateTime' in event['start'] and event['eventType'] == 'default':
-                    start_dt = datetime.datetime.strptime(event['start'].get('dateTime'), '%Y-%m-%dT%H:%M:%S%z')
-                    start_dt_utc = start_dt.astimezone(pytz.utc)
-                    now_dt_utc = datetime.datetime.now(pytz.utc)
-                else:
+            for email in account_emails:
+                # Load credentials for the account
+                account_creds = load_credentials(email)
+                if not account_creds:
+                    print(f"Skipping account {email} due to missing credentials.")
                     continue
 
-                if 'attendees' in event and any(attendee['email'] == email and attendee['responseStatus'] == 'accepted' for attendee in event['attendees']):
-                    if start_dt_utc > now_dt_utc:
-                        previous_next_event = next_event # save the previous "next_event" for comparison
-                        next_event = event
-                        next_start_time = start_dt_utc
-                        break
+                service = build('calendar', 'v3', credentials=account_creds)
+                events_result = service.events().list(calendarId='primary', timeMin=now,
+                                                      maxResults=10, singleEvents=True,
+                                                      orderBy='startTime').execute()
+                events = events_result.get('items', [])
+                # if not events:
+                #     print('No upcoming events found.')
+                #     return
 
+                for event in events:
+                    start_dt = None
+                    if 'dateTime' in event['start'] and event['eventType'] == 'default':
+                        start_dt = datetime.datetime.strptime(event['start'].get('dateTime'), '%Y-%m-%dT%H:%M:%S%z')
+                        start_dt_utc = start_dt.astimezone(pytz.utc)
+                        now_dt_utc = datetime.datetime.now(pytz.utc)
+                    else:
+                        continue
+
+                    if 'attendees' in event and any(attendee['email'] == email and attendee['responseStatus'] == 'accepted' for attendee in event['attendees']):
+                        if start_dt_utc > now_dt_utc:
+                            # Compare to find the earliest event across all accounts
+                            if earliest_event is None or start_dt_utc < earliest_start_time:
+                                earliest_event = event
+                                earliest_start_time = start_dt_utc
+                                next_email = email
+            
+            # Update global variables with the earliest event
+            previous_next_event = next_event
+            next_event = earliest_event
+            next_start_time = earliest_start_time
+                
             if next_event:
                 # print('previous next event: {}'.format(previous_next_event))
                 # print('new next event: {}'.format(next_event))
-                if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {next_start_time}")
+                if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {next_start_time} ({next_email})")
                 event_triggered = False  # Reset the flag for new event
             else:
                 if (debug) or (previous_next_event != next_event): print('No upcoming meetings found.')
@@ -219,7 +234,7 @@ def get_hue_bridge_ip(filename="settings_hue-bridge-ip.txt"):
         return ip_address
 
 # Function to get the email address from a file or user input
-def get_email(filename="settings_email.txt"):
+def get_emails(filename="settings_email.txt"):
     if os.path.exists(filename):
         with open(filename, 'r') as file:
             email_address = file.read().strip()
@@ -230,6 +245,40 @@ def get_email(filename="settings_email.txt"):
         with open(filename, 'w') as file:
             file.write(email_address)
         return email_address
+
+def get_emails(filename="settings_email.txt"):
+    if os.path.exists(filename):
+        with open(filename, 'r') as file:
+            # Read all lines, strip whitespace, and filter out empty lines
+            email_addresses = [line.strip() for line in file.readlines() if line.strip()]
+            print(f'Loaded email addresses: {email_addresses}')
+            return email_addresses
+    else:
+        # Prompt the user for email addresses if the file doesn't exist
+        email_addresses = input("Enter email addresses for your Google calendars, separated by commas: ").strip()
+        email_list = [email.strip() for email in email_addresses.split(',') if email.strip()]
+        
+        # Save to file
+        with open(filename, 'w') as file:
+            file.write('\n'.join(email_list))
+        
+        print(f'Saved email addresses: {email_list}')
+        return email_list
+
+def load_credentials(email):
+    """
+    Load credentials for a given email address using the token_[email].json format.
+    """
+    token_file = f"token_{email}.json"
+    if os.path.exists(token_file):
+        creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+        return creds
+    else:
+        print(f"Token file '{token_file}' not found. Please generate it for the account {email} via the google cloud console.")
+        return None
 
 def checkSensorBatteryLevels(bridge):
     sensor_names = bridge.get_sensor_objects('name')
