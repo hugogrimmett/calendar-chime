@@ -16,9 +16,11 @@ import os.path
 import mido
 import time
 import pytz
+import tzlocal
 import threading
 import phue
 import discoverhue
+from tzlocal import get_localzone
 from apscheduler.schedulers.background import BackgroundScheduler
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -39,6 +41,7 @@ next_start_time = None
 account_emails = None
 lock = threading.Lock()
 bridge = None
+bridge_scene_id = 'aoYhBTLiGLJYEYy'
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
@@ -90,7 +93,7 @@ def getNextEvent():
 
     with lock:
         try:
-            now = datetime.datetime.utcnow().isoformat() + 'Z'
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat().replace('+00:00', 'Z')
             earliest_event = None
             earliest_start_time = None
             next_email = None
@@ -132,11 +135,16 @@ def getNextEvent():
             previous_next_event = next_event
             next_event = earliest_event
             next_start_time = earliest_start_time
-                
+            
+            # Get the local timezone dynamically
+            local_tz = get_localzone()
+
             if next_event:
                 # print('previous next event: {}'.format(previous_next_event))
                 # print('new next event: {}'.format(next_event))
-                if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {next_start_time} ({next_email})")
+                # Convert UTC to local time before printing
+                local_next_start_time = next_start_time.astimezone(local_tz)
+                if (debug) or (previous_next_event != next_event): print(f"Next meeting is: {next_event['summary']} at {local_next_start_time} ({next_email})")
                 event_triggered = False  # Reset the flag for new event
             else:
                 if (debug) or (previous_next_event != next_event): print('No upcoming meetings found.')
@@ -150,7 +158,7 @@ def getNextEvent():
 
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
-    global next_event, next_start_time, bridge, event_triggered
+    global next_event, next_start_time, bridge, event_triggered, bridge_scene_id
 
     tolerance_seconds = 5
     warning_time_seconds = 15
@@ -168,7 +176,7 @@ def continuous_event_check():
                         except Exception as e:
                             print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
                         try:
-                            bridge.activate_scene(1, 'aoYhBTLiGLJYEYy', 0)  # activate video call scene in office
+                            bridge.activate_scene(1, bridge_scene_id, 0)  # activate video call scene in office
                         except Exception as e:
                             print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
                         event_triggered = True  # Set the flag to indicate the event action has been triggered
@@ -264,7 +272,7 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
     and generate the token file from that.
     """
     if verbose:
-        print(f"Trying email address: {email}")
+        print(f"📧 Trying email address: {email}")
     token_file = f"token_{email}.json"
     credentials_file = f"credentials_{email}.json"
     if os.path.exists(token_file):
@@ -273,7 +281,7 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
         if verbose:
-            print(f"   Credentials loaded.")
+            print(f"   ✅ Credentials loaded")
         return creds
     else:
         if create_if_not_existent:
@@ -284,18 +292,20 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
                     creds = flow.run_local_server(port=0)
                     with open(token_file, 'w') as token:
                         token.write(creds.to_json())
+                    if verbose:
+                        print(f"   ✅ Credentials loaded")
                 except:
                     if verbose:
-                        print(f"   Error: Credentials file {credentials_file} exists, but could not generate token from it.")
+                        print(f"   ❌ Error: Credentials file {credentials_file} exists, but could not generate token from it.")
                     return None
             else:
                 if verbose:
-                    print(f"   Error: The file {credentials_file} was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
+                    print(f"   ❌ Error: The file {credentials_file} was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
                 return None
             
         else:
             if verbose:
-                print(f"   Error: No token file {token_file} exists. Did not check whether {credentials_file} exists.")
+                print(f"   ❌ Error: No token file {token_file} exists. Did not check whether {credentials_file} exists.")
             return None
 
 def checkSensorBatteryLevels(bridge):
