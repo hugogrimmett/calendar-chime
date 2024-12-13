@@ -42,7 +42,7 @@ bridge = None
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
-debug = 1 # 1 for verbose, 0 for basic output
+debug = 0 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
@@ -61,21 +61,13 @@ def main():
         print("Failed to connect to the Hue bridge. Make sure you pressed the link button, and try again.")
         return
 
-    # # Load or create credentials for Google Calendar API
-    # if os.path.exists('token.json'):
-    #     creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    # if not creds or not creds.valid:
-    #     if creds and creds.expired and creds.refresh_token:
-    #         creds.refresh(Request())
-    #     else:
-    #         try:
-    #             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-    #             creds = flow.run_local_server(port=0)
-    #         except FileNotFoundError:
-    #             print("The 'credentials.json' file was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
-    #             return
-    #     with open('token.json', 'w') as token:
-    #         token.write(creds.to_json())
+    # Try loading or creating credentials for Google Calendar API
+    print("=============================================")
+    print("Searching for credentials for email addresses")
+    for email in account_emails:
+        # Load credentials for the account in verbose mode
+        account_creds = load_credentials(email, True, True)
+    print("=============================================")
 
     getNextEvent() # run the first time
     scheduler.add_job(getNextEvent, 'interval', seconds=60, coalesce=True, misfire_grace_time=60)
@@ -107,7 +99,7 @@ def getNextEvent():
                 # Load credentials for the account
                 account_creds = load_credentials(email)
                 if not account_creds:
-                    print(f"Skipping account {email} due to missing credentials.")
+                    # print(f"Skipping account {email} due to missing credentials.")
                     continue
 
                 service = build('calendar', 'v3', credentials=account_creds)
@@ -265,20 +257,46 @@ def get_emails(filename="settings_email.txt"):
         print(f'Saved email addresses: {email_list}')
         return email_list
 
-def load_credentials(email):
+def load_credentials(email, create_if_not_existent=False, verbose=False):
     """
-    Load credentials for a given email address using the token_[email].json format.
+    Load credentials for a given email address using the token_[email].json format. 
+    If that doesn't exist and create_if_non_existent=True, then try to load credentials_{email}.json 
+    and generate the token file from that.
     """
+    if verbose:
+        print(f"Trying email address: {email}")
     token_file = f"token_{email}.json"
+    credentials_file = f"credentials_{email}.json"
     if os.path.exists(token_file):
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+        if verbose:
+            print(f"   Credentials loaded.")
         return creds
     else:
-        print(f"Token file '{token_file}' not found. Please generate it for the account {email} via the google cloud console.")
-        return None
+        if create_if_not_existent:
+            if os.path.exists(credentials_file):
+                print(f"   Credentials file {credentials_file} found - trying to generate token.")
+                try:
+                    flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+                    creds = flow.run_local_server(port=0)
+                    with open(token_file, 'w') as token:
+                        token.write(creds.to_json())
+                except:
+                    if verbose:
+                        print(f"   Error: Credentials file {credentials_file} exists, but could not generate token from it.")
+                    return None
+            else:
+                if verbose:
+                    print(f"   Error: The file {credentials_file} was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
+                return None
+            
+        else:
+            if verbose:
+                print(f"   Error: No token file {token_file} exists. Did not check whether {credentials_file} exists.")
+            return None
 
 def checkSensorBatteryLevels(bridge):
     sensor_names = bridge.get_sensor_objects('name')
