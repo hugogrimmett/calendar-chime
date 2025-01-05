@@ -275,11 +275,19 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
         print(f"📧 Trying email address: {email}")
     token_file = f"token_{email}.json"
     credentials_file = f"credentials_{email}.json"
+    
+    # Attempt to load the token file if it exists
     if os.path.exists(token_file):
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except Exception as e:
+                    # Log a detailed error message for debugging
+                    print(f"   ❌ Error: Failed to refresh token for {email}. Exception: {e}")
+                    os.remove(token_file)  # Force a reauthorization on the next run
+                    return None
         if verbose:
             print(f"   ✅ Credentials loaded")
         return creds
