@@ -11,6 +11,8 @@
 
 from __future__ import print_function
 
+import pdb
+
 import datetime
 import os.path
 import mido
@@ -20,6 +22,7 @@ import tzlocal
 import threading
 import phue
 import discoverhue
+import json
 from tzlocal import get_localzone
 from apscheduler.schedulers.background import BackgroundScheduler
 from google.auth.transport.requests import Request
@@ -38,10 +41,19 @@ previous_next_event = 1 # 1 to get it to print the next meeting status when you 
 next_start_time = None
 # creds = None
 # email = None
-account_emails = None
 lock = threading.Lock()
-bridge = None
-bridge_scene_id = 'aoYhBTLiGLJYEYy'
+hue_bridge = None
+email_addresses = []
+lighting = {
+    "hue_bridge_ip_address": None,
+    "hue_scene_id": None 
+}
+midi = {
+    "device": None,
+    "channel": 0,
+    "note": 60,
+    "duration": 0.2
+}
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
@@ -49,25 +61,23 @@ debug = 0 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
-    global account_emails, bridge
+    global email_addresses, bridge, lighting
 
-    # Get email addresses
-    account_emails = get_emails()
+    # Load settings
+    load_settings('settings.json')
 
-    # Initialize and connect to Philips Hue bridge
-    ip_address = get_hue_bridge_ip()
     try:
-        bridge = Bridge(ip_address)
-        bridge.connect()
-        print("Successfully connected to the Hue bridge ({}).".format(ip_address))
+        hue_bridge = Bridge(lighting.get("hue_bridge_ip_address"))
+        hue_bridge.connect()
+        print("Successfully connected to the Hue bridge ({}).".format(lighting.get("hue_bridge_ip_address")))
     except:
-        print("Failed to connect to the Hue bridge. Make sure you pressed the link button, and try again.")
+        print("Failed to connect to the Hue bridge.")
         return
 
     # Try loading or creating credentials for Google Calendar API
     print("=============================================")
     print("Searching for credentials for email addresses")
-    for email in account_emails:
+    for email in email_addresses:
         # Load credentials for the account in verbose mode
         account_creds = load_credentials(email, True, True)
     print("=============================================")
@@ -89,7 +99,7 @@ def main():
 
 def getNextEvent():
     if (debug): print("getNextEvent called", flush=True)
-    global next_event, previous_next_event, next_start_time, account_emails, event_triggered
+    global next_event, previous_next_event, next_start_time, email_addresses, event_triggered
 
     with lock:
         try:
@@ -98,7 +108,7 @@ def getNextEvent():
             earliest_start_time = None
             next_email = None
 
-            for email in account_emails:
+            for email in email_addresses:
                 # Load credentials for the account
                 account_creds = load_credentials(email)
                 if not account_creds:
@@ -158,8 +168,9 @@ def getNextEvent():
 
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
-    global next_event, next_start_time, bridge, event_triggered, bridge_scene_id
-
+    global next_event, next_start_time, hue_bridge, event_triggered, lighting, midi
+    hue_bridge_ip = lighting.get("hue_bridge_ip_address")
+    hue_scene_id = lighting.get("hue_scene_id")
     tolerance_seconds = 5
     warning_time_seconds = 15
 
@@ -171,14 +182,19 @@ def continuous_event_check():
                 if 0 <= time_diff <= warning_time_seconds:
                     if not event_triggered:
                         print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
-                        try:
-                            bong(1, 'HAPAX', 15, 49)
-                        except Exception as e:
-                            print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
-                        try:
-                            bridge.activate_scene(1, bridge_scene_id, 0)  # activate video call scene in office
-                        except Exception as e:
-                            print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
+                        if midi:
+                            try:
+                                bong(1, midi.get("midi_device"), midi.get("midi_channel"), midi.get("midi_note"))
+                            except Exception as e:
+                                print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
+                        if hue_bridge and hue_scene_id:
+                            try:
+                                # activate hue scene
+                                hue_bridge.activate_scene(1, hue_scene_id, 0)
+                            except Exception as e:
+                                print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
+                        else:
+                            if verbose: print(f"⚠️  ERROR: no hue bridge scene ID")
                         event_triggered = True  # Set the flag to indicate the event action has been triggered
                     else:
                         if (debug): print('event already triggered')
@@ -194,59 +210,116 @@ def continuous_event_check():
         time.sleep(1)  # Check every second
 
 
-def bong(n, device, channel, note):
+def bong(n, device, channel, note, duration):
     outport = mido.open_output(device)
     on_msg = mido.Message('note_on', channel=channel, note=note)
     off_msg = mido.Message('note_off', channel=channel, note=note)
     for _ in range(n):
         outport.send(on_msg)
-        time.sleep(0.2)
+        time.sleep(duration)
         outport.send(off_msg)
         if n > 1:
             time.sleep(2)
 
-def get_hue_bridge_ip(filename="settings_hue-bridge-ip.txt"):
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            ip_address = file.read().strip()
-        return ip_address
-    else:
-        print('No bridge IP address config file found, so scanning for available bridges:')
-        bridges = discoverhue.find_bridges()
-
-        for i, (key, value) in enumerate(bridges.items(), start=1):
-            print(f".  {i}: {key} - {value}")
-
-        if len(bridges) > 1:
-            choice = int(input("Choose the number of the bridge you want to use: "))
-            ip_address = list(bridges.values())[choice - 1]
+def load_settings(file_path="settings.json", verbose=True):
+    global email_addresses, lighting, midi
+    if verbose: print(f"🎛️  Loading settings")
+    try:
+        with open(file_path, 'r') as file:
+            settings = json.load(file)
+        
+        # Assign settings to global variables
+        email_addresses = settings.get("email_addresses", email_addresses)
+        # check for missing email addresses
+        if not email_addresses:
+            if verbose: print("    ⚠️ Email addresses are missing.")
+            email_addresses = guide_user_to_enter_email_addresses()
+            settings["email_addresses"] = email_addresses  # Update settings dictionary
+            save_settings(file_path, settings)  # Save updated settings to file
+        print(f'    Email addresses: {email_addresses}')
+        
+        lighting = settings.get("lighting", lighting)
+        # Check for missing Hue Bridge IP address
+        if not lighting.get("hue_bridge_ip_address"):
+            if verbose: print("    ⚠️ Hue Bridge IP address is missing.")
+            user_choice = input("Would you like to connect a Hue Bridge now? (y/n): ").strip().lower()
+            if user_choice == 'y':
+                # Run connection logic and update settings
+                lighting["hue_bridge_ip_address"] = guide_user_to_connect_hue_bridge()
+                settings["lighting"] = lighting  # Update settings dictionary
+                save_settings(file_path, settings)  # Save updated settings to file
+            else:
+                if verbose: print("    ⚠️ No Hue Bridge IP address provided. Some features may not work.")
         else:
-            ip_address = next(iter(bridges.values()))  # Automatically choose the single item
+            print(f"    Hue bridge IP: {lighting.get("hue_bridge_ip_address")}")
 
-        ip_address = ip_address.rstrip('/')
-        ip_address = ip_address.lstrip('http://')
+        # check for missing scene ID
+        if not lighting.get("hue_scene_id"):
+            if verbose: print("    ⚠️ Hue scene ID is missing. No hue automation will take place.")
+            # to do: guide user to choose scene
+        else:
+            print(f"    Hue scene ID: {lighting.get("hue_scene_id")}")
 
-        print(f"The selected IP address is: {ip_address}")
+        midi = settings.get("midi", midi)
+        # check for missing MIDI
+        if not midi.get("midi"):
+            if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
+        
+        if verbose: print("    ✅  Settings loaded successfully.")
+    except FileNotFoundError:
+        if verbose: print(f"    ⚠️  Error: Settings file '{file_path}' was not found.")
+    except json.JSONDecodeError:
+        if verbose: print(f"    ⚠️  Error: Settings file '{file_path}' contains invalid JSON.")
+    except Exception as e:
+        if verbose: print(f"    ⚠️  An unexpected error occurred: {e}")
 
-        with open(filename, 'w') as file:
-            file.write(ip_address)
+def save_settings(file_path, settings, verbose = True):
+    """
+    Saves the updated settings back to the JSON file.
+    
+    Args:
+        file_path (str): Path to the JSON file.
+        settings (dict): The settings dictionary to save.
+    """
+    if verbose: print(f"Saving new setting: {settings}")
+    try:
+        with open(file_path, 'w') as file:
+            json.dump(settings, file, indent=4)
+        if verbose: print(f"    💾 Settings saved to {file_path}.")
+    except Exception as e:
+        if verbose: print(f"    ⚠️ Error: Unable to save settings to {file_path}: {e}")
 
-        return ip_address
+def guide_user_to_connect_hue_bridge(verbose = True):
+    if verbose: print('    Scanning for available bridges:')
+    bridges = discoverhue.find_bridges()
+
+    for i, (key, value) in enumerate(bridges.items(), start=1):
+        print(f".  {i}: {key} - {value}")
+
+    if len(bridges) > 1:
+        choice = int(input("    Choose the number of the bridge you want to use: "))
+        ip_address = list(bridges.values())[choice - 1]
+    else:
+        ip_address = next(iter(bridges.values()))  # Automatically choose the single item
+    ip_address = ip_address.rstrip('/')
+    ip_address = ip_address.lstrip('http://')
+    print(f"The selected IP address is: {ip_address}")
+    return ip_address
 
 # Function to get the email address from a file or user input
-def get_emails(filename="settings_email.txt"):
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            email_address = file.read().strip()
-            print(f'Chosen email address: {email_address}')
-        return email_address
-    else:
-        email_address = input("Enter the email address for your google calendar: ").strip()
-        with open(filename, 'w') as file:
-            file.write(email_address)
-        return email_address
+# def get_emails(filename="settings_email.txt"):
+#     if os.path.exists(filename):
+#         with open(filename, 'r') as file:
+#             email_address = file.read().strip()
+#             print(f'Chosen email address: {email_address}')
+#         return email_address
+#     else:
+#         email_address = input("Enter the email address for your google calendar: ").strip()
+#         with open(filename, 'w') as file:
+#             file.write(email_address)
+#         return email_address
 
-def get_emails(filename="settings_email.txt"):
+def guide_user_to_enter_email_addresses(filename="settings_email.txt", verbose = True):
     if os.path.exists(filename):
         with open(filename, 'r') as file:
             # Read all lines, strip whitespace, and filter out empty lines
@@ -255,15 +328,15 @@ def get_emails(filename="settings_email.txt"):
             return email_addresses
     else:
         # Prompt the user for email addresses if the file doesn't exist
-        email_addresses = input("Enter email addresses for your Google calendars, separated by commas: ").strip()
-        email_list = [email.strip() for email in email_addresses.split(',') if email.strip()]
+        email_input = input("Enter email addresses for your Google calendars, separated by commas: ").strip()
+        email_addresses = [email.strip() for email in email_input.split(',') if email.strip()]
         
         # Save to file
         with open(filename, 'w') as file:
-            file.write('\n'.join(email_list))
+            file.write('\n'.join(email_addresses))
         
-        print(f'Saved email addresses: {email_list}')
-        return email_list
+        print(f'Saved email addresses: {email_addresses}')
+        return email_addresses
 
 def load_credentials(email, create_if_not_existent=False, verbose=False):
     """
@@ -285,7 +358,9 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
                     creds.refresh(Request())
                 except Exception as e:
                     # Log a detailed error message for debugging
-                    print(f"   ❌ Error: Failed to refresh token for {email}. Exception: {e}")
+                    if verbose:
+                        print(f"   ❌ Error: Failed to refresh token for {email}. Exception: {e}.")
+                        print(f"   Deleting token file {token_file} to force reauthorisation next time.")
                     os.remove(token_file)  # Force a reauthorization on the next run
                     return None
         if verbose:
@@ -294,13 +369,15 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
     else:
         if create_if_not_existent:
             if os.path.exists(credentials_file):
-                print(f"   Credentials file {credentials_file} found - trying to generate token.")
+                if verbose: 
+                    print(f"   Token file {token_file} not found, but credentials file {credentials_file} found - trying to generate token.")
                 try:
                     flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
                     creds = flow.run_local_server(port=0)
                     with open(token_file, 'w') as token:
                         token.write(creds.to_json())
                     if verbose:
+                        print(f"   Saved generated token to {token_file}.")
                         print(f"   ✅ Credentials loaded")
                 except:
                     if verbose:
