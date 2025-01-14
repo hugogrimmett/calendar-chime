@@ -45,10 +45,12 @@ lock = threading.Lock()
 hue_bridge = None
 email_addresses = []
 lighting = {
+    "change_lights": False,
     "hue_bridge_ip_address": None,
     "hue_scene_id": None 
 }
 midi = {
+    "play_sound": False,
     "device": None,
     "channel": 0,
     "note": 60,
@@ -169,8 +171,6 @@ def getNextEvent():
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
     global next_event, next_start_time, hue_bridge, event_triggered, lighting, midi
-    hue_bridge_ip = lighting.get("hue_bridge_ip_address")
-    hue_scene_id = lighting.get("hue_scene_id")
     tolerance_seconds = 5
     warning_time_seconds = 15
 
@@ -182,15 +182,15 @@ def continuous_event_check():
                 if 0 <= time_diff <= warning_time_seconds:
                     if not event_triggered:
                         print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
-                        if midi:
+                        if midi["play_sound"]:
                             try:
                                 bong(1, midi.get("midi_device"), midi.get("midi_channel"), midi.get("midi_note"))
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
-                        if hue_bridge and hue_scene_id:
+                        if lighting["change_lights"]:
                             try:
                                 # activate hue scene
-                                hue_bridge.activate_scene(1, hue_scene_id, 0)
+                                hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
                         else:
@@ -248,10 +248,12 @@ def load_settings(file_path="settings.json", verbose=True):
                 lighting["hue_bridge_ip_address"] = guide_user_to_connect_hue_bridge()
                 settings["lighting"] = lighting  # Update settings dictionary
                 save_settings(file_path, settings)  # Save updated settings to file
+                lighting["change_lights"] = True
             else:
                 if verbose: print("    ⚠️ No Hue Bridge IP address provided. Some features may not work.")
         else:
             print(f"    Hue bridge IP: {lighting.get("hue_bridge_ip_address")}")
+            lighting["change_lights"] = True
 
         # check for missing scene ID
         if not lighting.get("hue_scene_id"):
@@ -264,6 +266,9 @@ def load_settings(file_path="settings.json", verbose=True):
         # check for missing MIDI
         if not midi.get("midi"):
             if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
+            midi["play_sound"] = False
+        else:
+            midi["play_sound"] = True
         
         if verbose: print("    ✅  Settings loaded successfully.")
     except FileNotFoundError:
@@ -338,7 +343,7 @@ def guide_user_to_enter_email_addresses(filename="settings_email.txt", verbose =
         print(f'Saved email addresses: {email_addresses}')
         return email_addresses
 
-def load_credentials(email, create_if_not_existent=False, verbose=False):
+def load_credentials(email, create_if_not_existent=False, verbose=True):
     """
     Load credentials for a given email address using the token_[email].json format. 
     If that doesn't exist and create_if_non_existent=True, then try to load credentials_{email}.json 
@@ -351,8 +356,10 @@ def load_credentials(email, create_if_not_existent=False, verbose=False):
     
     # Attempt to load the token file if it exists
     if os.path.exists(token_file):
+        if verbose: print(f"    Token file {token_file} found")
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
         if not creds or not creds.valid:
+            if verbose: print(f"    ... but credentials are either not present or expired")
             if creds and creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(Request())
