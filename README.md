@@ -1,15 +1,26 @@
-This project is about having a light and chime interaction when a meeting is about to start. 
+This project is about having a light and chime interaction when a meeting is about to start. Instructions are for mac.
 
 Written by Hugo Grimmett
 
 Uses python 3.8.15
 ```
+brew install python
 pyenv install 3.8.15
+```
+
+Recommended: create a virtual environment for this project
+```
+python3 -m venv venv
+source venv/bin/activate
 ```
 
 Packages required: 
 ```
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue discoverhue apscheduler
+pip install -r requirements.txt
+``` 
+OR
+```
+pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi python-rtmidi pytz phue discoverhue apscheduler
 ```
 
 Format for settings.json:

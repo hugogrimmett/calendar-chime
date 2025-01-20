@@ -2,12 +2,13 @@
 # October 2022
 #
 # This script rings a bell controlled by the MIDI robot whenever a google calendar event is starting
-# It also activates the lighting for meetings automatically
+# It also activates the lighting for meetings automatically via Hue.
 # The calendar event must involve at least one other participant, and have been accepted by me
+# It can handle multiple google calendars, and guide the user to connect to the Hue Bridge the first time,
+# although it will not help you find the scene ID.
 #
+# See README.md for setup and config
 #
-# To install necessary packages:
-# pipenv install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi rtmidi pytz phue discoverhue apscheduler
 
 from __future__ import print_function
 
@@ -42,9 +43,9 @@ next_start_time = None
 # creds = None
 # email = None
 lock = threading.Lock()
-hue_bridge = None
 email_addresses = []
 lighting = {
+    "hue_bridge": None,
     "change_lights": False,
     "hue_bridge_ip_address": None,
     "hue_scene_id": None 
@@ -69,11 +70,15 @@ def main():
     load_settings('settings.json')
 
     try:
-        hue_bridge = Bridge(lighting.get("hue_bridge_ip_address"))
-        hue_bridge.connect()
+        # pdb.set_trace()
+        lighting["hue_bridge"] = Bridge(lighting.get("hue_bridge_ip_address"))
+        lighting["hue_bridge"].connect()
         print("Successfully connected to the Hue bridge ({}).".format(lighting.get("hue_bridge_ip_address")))
-    except:
-        print("Failed to connect to the Hue bridge.")
+    except phue.PhueRegistrationException:
+        print("Go press the button on your Hue bridge, and then re-run this script within 30s")
+        return    
+    except Exception as e:
+        print(f"Failed to connect to the Hue bridge: {e}")
         return
 
     # Try loading or creating credentials for Google Calendar API
@@ -112,7 +117,7 @@ def getNextEvent():
 
             for email in email_addresses:
                 # Load credentials for the account
-                account_creds = load_credentials(email)
+                account_creds = load_credentials(email, False, False)
                 if not account_creds:
                     # print(f"Skipping account {email} due to missing credentials.")
                     continue
@@ -170,7 +175,7 @@ def getNextEvent():
 
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
-    global next_event, next_start_time, hue_bridge, event_triggered, lighting, midi
+    global next_event, next_start_time, event_triggered, lighting, midi
     tolerance_seconds = 5
     warning_time_seconds = 15
 
@@ -190,7 +195,7 @@ def continuous_event_check():
                         if lighting["change_lights"]:
                             try:
                                 # activate hue scene
-                                hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
+                                lighting.get("hue_bridge").activate_scene(1, lighting.get("hue_scene_id"), 0)
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
                         else:
