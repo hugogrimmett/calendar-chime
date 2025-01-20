@@ -51,11 +51,7 @@ lighting = {
     "hue_scene_id": None 
 }
 midi = {
-    "play_sound": False,
-    "device": None,
-    "channel": 0,
-    "note": 60,
-    "duration": 0.2
+    "play_sound": False
 }
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
@@ -191,7 +187,7 @@ def continuous_event_check():
                         print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
                         if midi["play_sound"]:
                             try:
-                                bong(1, midi.get("midi_device"), midi.get("midi_channel"), midi.get("midi_note"))
+                                bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
                         if lighting["change_lights"]:
@@ -271,11 +267,28 @@ def load_settings(file_path="settings.json", verbose=True):
 
         midi = settings.get("midi", midi)
         # check for missing MIDI
-        if not midi.get("midi"):
-            if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
-            midi["play_sound"] = False
+        if not midi.get("device") or not midi.get("channel") or not midi.get("note") or not midi.get("duration"):
+            midi = guide_user_to_enter_midi_data(midi)
+            if midi.get("device") is None or midi.get("channel") is None or midi.get("note") is None or midi.get("duration") is None:
+                if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
+                midi["play_sound"] = False
+            else:
+                midi["play_sound"] = True
+                print(f"    MIDI:")
+                print(f"        Device: {midi.get("device")}")
+                print(f"        Channel: {midi.get("channel")}")
+                print(f"        Note: {midi.get("note")}")
+                print(f"        Duration: {midi.get("duration")}")
+                settings["midi"] = midi # update midi dictionary
+                save_settings(file_path,settings) # save to settings file
+                print(f"    saved to {file_path}")
         else:
             midi["play_sound"] = True
+            print(f"    MIDI:")
+            print(f"        Device: {midi.get("device")}")
+            print(f"        Channel: {midi.get("channel")}")
+            print(f"        Note: {midi.get("note")}")
+            print(f"        Duration: {midi.get("duration")}")
         
         if verbose: print("    ✅  Settings loaded successfully.")
     except FileNotFoundError:
@@ -286,13 +299,6 @@ def load_settings(file_path="settings.json", verbose=True):
         if verbose: print(f"    ⚠️  An unexpected error occurred: {e}")
 
 def save_settings(file_path, settings, verbose = True):
-    """
-    Saves the updated settings back to the JSON file.
-    
-    Args:
-        file_path (str): Path to the JSON file.
-        settings (dict): The settings dictionary to save.
-    """
     if verbose: print(f"Saving new setting: {settings}")
     try:
         with open(file_path, 'w') as file:
@@ -318,37 +324,93 @@ def guide_user_to_connect_hue_bridge(verbose = True):
     print(f"The selected IP address is: {ip_address}")
     return ip_address
 
-# Function to get the email address from a file or user input
-# def get_emails(filename="settings_email.txt"):
-#     if os.path.exists(filename):
-#         with open(filename, 'r') as file:
-#             email_address = file.read().strip()
-#             print(f'Chosen email address: {email_address}')
-#         return email_address
-#     else:
-#         email_address = input("Enter the email address for your google calendar: ").strip()
-#         with open(filename, 'w') as file:
-#             file.write(email_address)
-#         return email_address
-
 def guide_user_to_enter_email_addresses(filename="settings_email.txt", verbose = True):
-    if os.path.exists(filename):
-        with open(filename, 'r') as file:
-            # Read all lines, strip whitespace, and filter out empty lines
-            email_addresses = [line.strip() for line in file.readlines() if line.strip()]
-            print(f'Loaded email addresses: {email_addresses}')
-            return email_addresses
-    else:
-        # Prompt the user for email addresses if the file doesn't exist
-        email_input = input("Enter email addresses for your Google calendars, separated by commas: ").strip()
-        email_addresses = [email.strip() for email in email_input.split(',') if email.strip()]
-        
-        # Save to file
-        with open(filename, 'w') as file:
-            file.write('\n'.join(email_addresses))
-        
-        print(f'Saved email addresses: {email_addresses}')
-        return email_addresses
+    # Prompt the user for email addresses if the file doesn't exist
+    email_input = input("Enter email addresses for your Google calendars, separated by commas: ").strip()
+    email_addresses = [email.strip() for email in email_input.split(',') if email.strip()]
+    
+    return email_addresses
+
+def guide_user_to_enter_midi_data(midi, verbose = True):
+    if midi.get("device") is None:
+        # List available input ports
+        input_ports = mido.get_input_names()
+
+        # Check if there are any MIDI ports available
+        if not input_ports:
+            print("No MIDI input ports available.")
+            midi["device"] = None
+            return midi
+        else:
+            # Print enumerated list of options
+            print("Available MIDI Input Ports:")
+            for i, port in enumerate(input_ports):
+                print(f"{i}: {port}")
+
+            # Ask the user to select a port
+            selection = False
+            while selection == False:
+                try:
+                    selected_index = int(input("Enter the number corresponding to the desired MIDI input port: "))
+                    if 0 <= selected_index < len(input_ports):
+                        midi["device"] = input_ports[selected_index]
+                        selection = True # continue
+                    else:
+                        print("Invalid selection. Please enter a number from the list.")
+                except ValueError:
+                    print("Invalid input. Please enter a valid number.")
+                    midi["device"] = None
+                    return midi
+ 
+    if not midi.get("channel"):
+        selection = False
+        while selection == False:
+            try:
+                channel = int(input("Select MIDI channel (0-15): "))
+                if 0 <= channel <= 15:
+                    midi["channel"] = channel
+                    selection = True # continue
+                else:
+                    print("Invalid selection. Please enter a number in the range 0-15.")
+            except ValueError:
+                print("Invalid input. Please enter a valid number.")
+                midi["channel"] = None
+                return midi
+
+    if not midi.get("note"):
+        selection = False
+        while selection == False:
+            try:
+                note = int(input("Select MIDI note (0-127): "))
+                if 0 <= note <= 127:
+                    midi["note"] = note
+                    selection = True # continue
+                else:
+                    print("Invalid selection. Please enter a number in the range 0-127.")
+            except ValueError:
+                print("Invalid input. Please enter a valid number.")
+                midi["note"] = None
+                return midi
+
+    if not midi.get("duration"):
+        selection = False
+        while selection == False:
+            try:
+                duration = float(input("Select note duration (>0): "))
+                if 0 < duration:
+                    midi["duration"] = duration
+                    selection = True # continue
+                else:
+                    print("Invalid selection. Please enter a number > 0.")
+            except ValueError:
+                print("Invalid input. Please enter a valid number.")
+                midi["duration"] = None
+                return midi
+    return midi
+
+def guide_user_to_enter_lighting_scene():
+    global lighting
+    
 
 def load_credentials(email, create_if_not_existent=False, verbose=True):
     """
