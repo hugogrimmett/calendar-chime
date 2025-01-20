@@ -1,4 +1,5 @@
-This project is about having a light and chime interaction when a meeting is about to start. Instructions are for mac.
+This project is about having a light and sound interaction just before a calendar meeting is about to start. The script scans google calendar(s) every 60s to find the next meeting, and 15s before it starts it actives a Philips Hue scene and plays a MIDI note.
+Instructions are for mac.
 
 Written by Hugo Grimmett
 
@@ -18,10 +19,6 @@ Packages required:
 ```
 pip install -r requirements.txt
 ``` 
-OR
-```
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi python-rtmidi pytz phue discoverhue apscheduler
-```
 
 Format for settings.json:
 ```
@@ -45,5 +42,5 @@ Format for settings.json:
 
 The latest script is meeting-start-reminder.py:
 ```
-python meeting-start-reminder.py
+python3 meeting-start-reminder.py
 ```
