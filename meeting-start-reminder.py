@@ -44,15 +44,14 @@ next_start_time = None
 # email = None
 lock = threading.Lock()
 email_addresses = []
+hue_bridge = None
+change_lights = False
 lighting = {
-    "hue_bridge": None,
-    "change_lights": False,
     "hue_bridge_ip_address": None,
     "hue_scene_id": None 
 }
-midi = {
-    "play_sound": False
-}
+midi = {"device": None}
+play_sound = False
 scheduler = BackgroundScheduler()
 event_triggered = False  # Flag to track if the event action has been triggered
 
@@ -60,22 +59,13 @@ debug = 0 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
-    global email_addresses, bridge, lighting
+    global email_addresses, hue_bridge, lighting
 
     # Load settings
     load_settings('settings.json')
 
     # Connect to Hue bridge
-    try:
-        lighting["hue_bridge"] = Bridge(lighting.get("hue_bridge_ip_address"))
-        lighting["hue_bridge"].connect()
-        print("Successfully connected to the Hue bridge ({}).".format(lighting.get("hue_bridge_ip_address")))
-    except phue.PhueRegistrationException:
-        print("Go press the button on your Hue bridge, and then re-run this script within 30s")
-        return    
-    except Exception as e:
-        print(f"Failed to connect to the Hue bridge: {e}")
-        return
+    connectToBridge()
 
     # Try loading or creating credentials for Google Calendar API
     print("=============================================")
@@ -101,6 +91,20 @@ def main():
             time.sleep(1)  # Keeps the main thread alive
     except (KeyboardInterrupt, SystemExit):
         scheduler.shutdown()
+
+def connectToBridge():
+    global lighting, hue_bridge
+    if hue_bridge is None:
+        try:
+            hue_bridge = Bridge(lighting.get("hue_bridge_ip_address"))
+            hue_bridge.connect()
+            print("Successfully connected to the Hue bridge ({}).".format(lighting.get("hue_bridge_ip_address")))
+        except phue.PhueRegistrationException:
+            print("Go press the button on your Hue bridge, and then re-run this script within 30s")
+            return    
+        except Exception as e:
+            print(f"Failed to connect to the Hue bridge: {e}")
+            return
 
 def getNextEvent():
     if (debug): print("getNextEvent called", flush=True)
@@ -173,7 +177,7 @@ def getNextEvent():
 
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
-    global next_event, next_start_time, event_triggered, lighting, midi
+    global next_event, next_start_time, event_triggered, lighting, midi, hue_bridge, play_sound, change_lights
     tolerance_seconds = 5
     warning_time_seconds = 15
 
@@ -185,12 +189,12 @@ def continuous_event_check():
                 if 0 <= time_diff <= warning_time_seconds:
                     if not event_triggered:
                         print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
-                        if midi["play_sound"]:
+                        if play_sound:
                             try:
                                 bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
-                        if lighting["change_lights"]:
+                        if change_lights:
                             try:
                                 # activate hue scene
                                 lighting.get("hue_bridge").activate_scene(1, lighting.get("hue_scene_id"), 0)
@@ -225,7 +229,7 @@ def bong(n, device, channel, note, duration):
             time.sleep(2)
 
 def load_settings(file_path="settings.json", verbose=True):
-    global email_addresses, lighting, midi
+    global email_addresses, lighting, midi, hue_bridge, play_sound, change_lights
     if verbose: print(f"🎛️  Loading settings")
     try:
         with open(file_path, 'r') as file:
@@ -251,17 +255,23 @@ def load_settings(file_path="settings.json", verbose=True):
                 lighting["hue_bridge_ip_address"] = guide_user_to_connect_hue_bridge()
                 settings["lighting"] = lighting  # Update settings dictionary
                 save_settings(file_path, settings)  # Save updated settings to file
-                lighting["change_lights"] = True
+                change_lights = True
             else:
                 if verbose: print("    ⚠️ No Hue Bridge IP address provided. Some features may not work.")
         else:
             print(f"    Hue bridge IP: {lighting.get("hue_bridge_ip_address")}")
-            lighting["change_lights"] = True
+            change_lights = True
 
         # check for missing scene ID
         if not lighting.get("hue_scene_id"):
-            if verbose: print("    ⚠️ Hue scene ID is missing. No hue automation will take place.")
-            # to do: guide user to choose scene
+            scene_id = guide_user_to_lighting_scene_id()
+            if scene_id is None:
+                if verbose: print("    ⚠️ Hue scene ID is missing. No hue automation will take place.")
+                change_lights = False
+            else:
+                lighting["hue_scene_id"] = scene_id
+                save_settings(file_path, settings)  # Save updated settings to file
+                change_lights = True
         else:
             print(f"    Hue scene ID: {lighting.get("hue_scene_id")}")
 
@@ -271,9 +281,9 @@ def load_settings(file_path="settings.json", verbose=True):
             midi = guide_user_to_enter_midi_data(midi)
             if midi.get("device") is None or midi.get("channel") is None or midi.get("note") is None or midi.get("duration") is None:
                 if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
-                midi["play_sound"] = False
+                play_sound = False
             else:
-                midi["play_sound"] = True
+                play_sound = True
                 print(f"    MIDI:")
                 print(f"        Device: {midi.get("device")}")
                 print(f"        Channel: {midi.get("channel")}")
@@ -283,7 +293,7 @@ def load_settings(file_path="settings.json", verbose=True):
                 save_settings(file_path,settings) # save to settings file
                 print(f"    saved to {file_path}")
         else:
-            midi["play_sound"] = True
+            play_sound = True
             print(f"    MIDI:")
             print(f"        Device: {midi.get("device")}")
             print(f"        Channel: {midi.get("channel")}")
@@ -408,9 +418,64 @@ def guide_user_to_enter_midi_data(midi, verbose = True):
                 return midi
     return midi
 
-def guide_user_to_enter_lighting_scene():
-    global lighting
-    
+def guide_user_to_lighting_scene_id():
+    global lighting, hue_bridge
+    connectToBridge()
+    bridge = hue_bridge
+    # Get groups (rooms) from the Hue bridge
+    # pdb.set_trace()
+    # Get all groups (rooms and zones)
+    groups = bridge.groups
+    if not groups:
+        print("No groups available on the Hue bridge.")
+        return None
+
+    # Enumerate all groups (rooms)
+    print("Available groups:")
+    for i, group in enumerate(groups, start=1):
+        print(f"{i}. {group.name}")
+
+    try:
+        group_choice = int(input("Select a group by number: ")) - 1
+        if group_choice < 0 or group_choice >= len(groups):
+            print("Invalid group selection.")
+            return None
+    except ValueError:
+        print("Invalid input. Please enter a number.")
+        return None
+
+    selected_group = groups[group_choice]
+    selected_group_id = selected_group.group_id
+    selected_group_name = selected_group.name
+
+    # pdb.set_trace()
+    # Get scenes linked to the selected group
+    scenes = bridge.scenes
+    group_scenes = {scene.scene_id: scene for scene in scenes if scene.group == str(selected_group_id)}
+
+    if not group_scenes:
+        print(f"No scenes available for group: {selected_group_name}")
+        return None
+
+    # Enumerate scenes and ask the user to choose one
+    print(f"Available scenes for group '{selected_group_name}':")
+    for i, (scene_id, scene) in enumerate(group_scenes.items(), start=1):
+        print(f"{i}. {scene.name}")
+
+    try:
+        scene_choice = int(input("Select a scene by number: ")) - 1
+        if scene_choice < 0 or scene_choice >= len(group_scenes):
+            print("Invalid scene selection.")
+            return None
+    except ValueError:
+        print("Invalid input. Please enter a number.")
+        return None
+
+    selected_scene_id = list(group_scenes.keys())[scene_choice]
+    selected_scene_name = group_scenes[selected_scene_id].name
+
+    print(f"You selected scene: '{selected_scene_name}' with ID: {selected_scene_id}")
+    return selected_scene_id
 
 def load_credentials(email, create_if_not_existent=False, verbose=True):
     """
