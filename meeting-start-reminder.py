@@ -4,8 +4,7 @@
 # This script rings a bell controlled by the MIDI robot whenever a google calendar event is starting
 # It also activates the lighting for meetings automatically via Hue.
 # The calendar event must involve at least one other participant, and have been accepted by me
-# It can handle multiple google calendars, and guide the user to connect to the Hue Bridge the first time,
-# although it will not help you find the scene ID.
+# It can handle multiple google calendars, and guide the user through all the settings if required.
 #
 # See README.md for setup and config
 #
