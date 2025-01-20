@@ -1,2 +1,5 @@
 *.json
 .DS_Store
+old_scripts
+.python-version
+.gitignore

@@ -69,8 +69,8 @@ def main():
     # Load settings
     load_settings('settings.json')
 
+    # Connect to Hue bridge
     try:
-        # pdb.set_trace()
         lighting["hue_bridge"] = Bridge(lighting.get("hue_bridge_ip_address"))
         lighting["hue_bridge"].connect()
         print("Successfully connected to the Hue bridge ({}).".format(lighting.get("hue_bridge_ip_address")))
@@ -89,6 +89,7 @@ def main():
         account_creds = load_credentials(email, True, True)
     print("=============================================")
 
+    # Get next calendar event, and re-run periodically
     getNextEvent() # run the first time
     scheduler.add_job(getNextEvent, 'interval', seconds=60, coalesce=True, misfire_grace_time=60)
     if (debug): print("Job scheduled for getNextEvent")
@@ -98,6 +99,7 @@ def main():
     # Start a thread to continuously check event timing
     threading.Thread(target=continuous_event_check, daemon=True).start()
 
+    # Don't crash if computer goes to sleep
     try:
         while True:
             time.sleep(1)  # Keeps the main thread alive
