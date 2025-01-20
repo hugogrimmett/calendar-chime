@@ -19,10 +19,6 @@ Packages required:
 ```
 pip install -r requirements.txt
 ``` 
-OR
-```
-pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib mido python-rtmidi python-rtmidi pytz phue discoverhue apscheduler
-```
 
 Format for settings.json:
 ```
@@ -46,5 +42,5 @@ Format for settings.json:
 
 The latest script is meeting-start-reminder.py:
 ```
-python meeting-start-reminder.py
+python3 meeting-start-reminder.py
 ```
