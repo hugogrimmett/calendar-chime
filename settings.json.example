@@ -1,0 +1,16 @@
+{
+  "email_addresses": [
+    "myemail@domain.com",
+    "otheremail@otherdomain.com"
+  ],
+  "lighting": {
+    "hue_bridge_ip_address": "xxx.xxx.xxx.xx:xx",
+    "hue_scene_id": "abcdefghijkl"
+  },
+  "midi": {
+    "device": "my_midi_device",
+    "channel": 0,
+    "note": 49,
+    "duration": 0.2
+  }
+}
