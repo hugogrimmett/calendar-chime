@@ -1,6 +1,7 @@
 This project is about having a light and sound interaction just before a calendar meeting is about to start. The script scans google calendar(s) every 60s to find the next meeting, and 15s before it starts it actives a Philips Hue scene and plays a MIDI note.
 Instructions are for mac.
--- Hugo Grimmett
+
+Written by Hugo Grimmett
 
 Uses python 3.8.15
 ```
