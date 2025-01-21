@@ -196,7 +196,7 @@ def continuous_event_check():
                         if change_lights:
                             try:
                                 # activate hue scene
-                                lighting.get("hue_bridge").activate_scene(1, lighting.get("hue_scene_id"), 0)
+                                hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
                             except Exception as e:
                                 print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
                         else:
