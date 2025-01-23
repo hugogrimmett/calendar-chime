@@ -227,6 +227,51 @@ def bong(n, device, channel, note, duration):
         if n > 1:
             time.sleep(2)
 
+
+def load_credentials(email, create_if_not_existent=False, verbose=True):
+    token_file = f"token_{email}.json"
+    credentials_file = f"credentials_{email}.json"
+    
+    if verbose: print(f"Trying email address: {email}")
+
+    # Attempt to load the token file
+    if os.path.exists(token_file):
+        try:
+            creds = Credentials.from_authorized_user_file(token_file, SCOPES)
+            if creds.valid:
+                if verbose: print(f"   ✅ Credentials loaded successfully from {token_file}")
+                return creds
+            if creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                    with open(token_file, 'w') as token:
+                        token.write(creds.to_json())
+                    if verbose: print(f"   🔄 Token refreshed and saved to {token_file}")
+                    return creds
+                except Exception as e:
+                    if verbose: print(f"   ❌ Error refreshing token: {e}")
+                    return None
+        except Exception as e:
+            if verbose: print(f"   ⚠️ Error reading token file {token_file}: {e}")
+            return None
+
+    # Token file does not exist, handle accordingly
+    if create_if_not_existent and os.path.exists(credentials_file):
+        if verbose: print(f"   Token file not found, attempting to create from {credentials_file}")
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
+            creds = flow.run_local_server(port=0)
+            with open(token_file, 'w') as token:
+                token.write(creds.to_json())
+            if verbose: print(f"   ✅ New token saved to {token_file}")
+            return creds
+        except Exception as e:
+            if verbose: print(f"   ❌ Error generating token from {credentials_file}: {e}")
+            return None
+
+    print(f"   ❌ No valid token or credentials available for {email}.")
+    return None
+
 def load_settings(file_path="settings.json", verbose=True):
     global email_addresses, lighting, midi, hue_bridge, play_sound, change_lights
     if verbose: print(f"🎛️  Loading settings")
@@ -475,63 +520,6 @@ def guide_user_to_lighting_scene_id():
 
     print(f"You selected scene: '{selected_scene_name}' with ID: {selected_scene_id}")
     return selected_scene_id
-
-def load_credentials(email, create_if_not_existent=False, verbose=True):
-    """
-    Load credentials for a given email address using the token_[email].json format. 
-    If that doesn't exist and create_if_non_existent=True, then try to load credentials_{email}.json 
-    and generate the token file from that.
-    """
-    if verbose:
-        print(f"📧 Trying email address: {email}")
-    token_file = f"token_{email}.json"
-    credentials_file = f"credentials_{email}.json"
-    
-    # Attempt to load the token file if it exists
-    if os.path.exists(token_file):
-        if verbose: print(f"    Token file {token_file} found")
-        creds = Credentials.from_authorized_user_file(token_file, SCOPES)
-        if not creds or not creds.valid:
-            if verbose: print(f"    ... but credentials are either not present or expired")
-            if creds and creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                except Exception as e:
-                    # Log a detailed error message for debugging
-                    if verbose:
-                        print(f"   ❌ Error: Failed to refresh token for {email}. Exception: {e}.")
-                        print(f"   Deleting token file {token_file} to force reauthorisation next time.")
-                    os.remove(token_file)  # Force a reauthorization on the next run
-                    return None
-        if verbose:
-            print(f"   ✅ Credentials loaded")
-        return creds
-    else:
-        if create_if_not_existent:
-            if os.path.exists(credentials_file):
-                if verbose: 
-                    print(f"   Token file {token_file} not found, but credentials file {credentials_file} found - trying to generate token.")
-                try:
-                    flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-                    creds = flow.run_local_server(port=0)
-                    with open(token_file, 'w') as token:
-                        token.write(creds.to_json())
-                    if verbose:
-                        print(f"   Saved generated token to {token_file}.")
-                        print(f"   ✅ Credentials loaded")
-                except:
-                    if verbose:
-                        print(f"   ❌ Error: Credentials file {credentials_file} exists, but could not generate token from it.")
-                    return None
-            else:
-                if verbose:
-                    print(f"   ❌ Error: The file {credentials_file} was not found. Please check the file path, or generate from via the google cloud console and rename appropriately.")
-                return None
-            
-        else:
-            if verbose:
-                print(f"   ❌ Error: No token file {token_file} exists. Did not check whether {credentials_file} exists.")
-            return None
 
 def checkSensorBatteryLevels(bridge):
     sensor_names = bridge.get_sensor_objects('name')
