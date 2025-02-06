@@ -23,6 +23,7 @@ import threading
 import phue
 import discoverhue
 import json
+import argparse
 from tzlocal import get_localzone
 from apscheduler.schedulers.background import BackgroundScheduler
 from google.auth.transport.requests import Request
@@ -58,10 +59,31 @@ debug = 0 # 1 for verbose, 0 for basic output
 
 # Main function
 def main():
-    global email_addresses, hue_bridge, lighting
+    global email_addresses, hue_bridge, lighting, debug, play_sound
+    
+    parser = argparse.ArgumentParser(description="This script plays a MIDI note and activates a Hue scene 15s before a google calendar event is about to start. It also activates the lighting for meetings automatically via Hue. The calendar event must involve at least one other participant, and have been accepted by you. It can handle multiple google calendars, and guide the user through all the settings if required.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose mode")
+    parser.add_argument("--testmidi", action="store_true", help="Test the midi output")
+    args = parser.parse_args()
+
+    if args.verbose:
+        print("Verbose mode is enabled.")
+        debug = 1
 
     # Load settings
     load_settings('settings.json')
+
+    if args.testmidi:
+        print("Testing MIDI output.")
+        if play_sound:
+            try:
+                bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
+                print('    MIDI note sent. Did you hear a sound?')
+            except Exception as e:
+                print(f'    ⚠️  ERROR: could not play a sound: {e} ⚠️')
+        else:
+            print("    ❌ Error with MIDI settings.")
+        return
 
     # Connect to Hue bridge
     connectToBridge()
