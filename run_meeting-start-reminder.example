@@ -1,0 +1,3 @@
+cd /path/to/calendar-chime
+source venv/bin/activate
+/path/to/calendar-chime/venv/bin/python3 meeting-start-reminder.py

@@ -2,7 +2,7 @@
 # October 2022
 #
 # This script rings a bell controlled by the MIDI robot whenever a google calendar event is starting
-# It also activates the lighting for meetings automatically via Hue.
+# It also activates the lighting for meetings automatically via Hue or Home Assistant.
 # The calendar event must involve at least one other participant, and have been accepted by me
 # It can handle multiple google calendars, and guide the user through all the settings if required.
 #
@@ -47,8 +47,13 @@ email_addresses = []
 hue_bridge = None
 change_lights = False
 lighting = {
+    "use_hue": False,
+    "use_ha": False,
     "hue_bridge_ip_address": None,
-    "hue_scene_id": None 
+    "hue_scene_id": None,
+    "ha_url": None,
+    "ha_token": None,
+    "ha_scene_id": None
 }
 midi = {"device": None}
 play_sound = False
@@ -61,9 +66,11 @@ debug = 0 # 1 for verbose, 0 for basic output
 def main():
     global email_addresses, hue_bridge, lighting, debug, play_sound
     
-    parser = argparse.ArgumentParser(description="This script plays a MIDI note and activates a Hue scene 15s before a google calendar event is about to start. It also activates the lighting for meetings automatically via Hue. The calendar event must involve at least one other participant, and have been accepted by you. It can handle multiple google calendars, and guide the user through all the settings if required.")
+    # parse command line arguments
+    parser = argparse.ArgumentParser(description="This script plays a MIDI note and activates a Hue scene 15s before a google calendar event is about to start. It also activates the lighting for meetings automatically via Hue or Home Assistant. The calendar event must involve at least one other participant, and have been accepted by you. It can handle multiple google calendars, and guide the user through all the settings if required.")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose mode")
     parser.add_argument("--testmidi", action="store_true", help="Test the midi output")
+    parser.add_argument("--testlights", action="store_true", help="Test the lighting scene activation")
     args = parser.parse_args()
 
     if args.verbose:
@@ -85,8 +92,39 @@ def main():
             print("    ❌ Error with MIDI settings.")
         return
 
+    if args.testlights:
+        print("Testing lighting scene activation.")
+        if lighting.get("use_hue"):
+            connectToBridge()
+            try:
+                hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
+                print('    Hue scene activated. Did you see the lights turn on?')
+            except Exception as e:
+                print(f'    ❌  ERROR: could not activate the scene: {e}')
+        elif lighting.get("use_ha"):
+            try:
+                # activate HA scene
+                import requests
+                url = f"{lighting['ha_url']}/api/services/scene/turn_on"
+                headers = {
+                    "Authorization": f"Bearer {lighting['ha_token']}",
+                    "Content-Type": "application/json"
+                }
+                payload = {"entity_id": lighting['ha_scene_id']}
+                response = requests.post(url, headers=headers, json=payload)
+                if response.status_code == 200:
+                    print("Home Assistant scene activated successfully.")
+                else:
+                    print(f"    ❌  Failed to activate Home Assistant scene: {response.text}")
+            except Exception as e:
+                print(f'    ❌  ERROR: could not activate the scene: {e}')
+        else:
+            print("    ❌ Error with lighting settings.")
+        return
+
     # Connect to Hue bridge
-    connectToBridge()
+    if lighting.get("use_hue"):
+        connectToBridge()
 
     # Try loading or creating credentials for Google Calendar API
     print("=============================================")
@@ -214,15 +252,30 @@ def continuous_event_check():
                             try:
                                 bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
                             except Exception as e:
-                                print(f'⚠️  ERROR: could not play a sound: {e} ⚠️')
+                                print(f'❌  ERROR: could not play a sound: {e}')
                         if change_lights:
-                            try:
-                                # activate hue scene
-                                hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
-                            except Exception as e:
-                                print(f'⚠️  ERROR: could not turn the lights on: {e} ⚠️')
+                            if lighting.get("use_ha"):
+                                # activate HA scene
+                                import requests
+                                url = f"{lighting['ha_url']}/api/services/scene/turn_on"
+                                headers = {
+                                    "Authorization": f"Bearer {lighting['ha_token']}",
+                                    "Content-Type": "application/json"
+                                }
+                                payload = {"entity_id": lighting['ha_scene_id']}
+                                response = requests.post(url, headers=headers, json=payload)
+                                if response.status_code == 200:
+                                    print("Home Assistant scene activated successfully.")
+                                else:
+                                    print(f"Failed to activate Home Assistant scene: {response.text}")
+                            else:
+                                try:
+                                    # activate hue scene
+                                    hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
+                                except Exception as e:
+                                    print(f'❌  ERROR: could not turn the lights on: {e}')
                         else:
-                            if verbose: print(f"⚠️  ERROR: no hue bridge scene ID")
+                            if verbose: print(f"❌  ERROR: no hue bridge scene ID")
                         event_triggered = True  # Set the flag to indicate the event action has been triggered
                     else:
                         if (debug): print('event already triggered')
@@ -312,67 +365,73 @@ def load_settings(file_path="settings.json", verbose=True):
         print(f'    Email addresses: {email_addresses}')
         
         lighting = settings.get("lighting", lighting)
-        # Check for missing Hue Bridge IP address
-        if not lighting.get("hue_bridge_ip_address"):
-            if verbose: print("    ⚠️ Hue Bridge IP address is missing.")
-            user_choice = input("Would you like to connect a Hue Bridge now? (y/n): ").strip().lower()
-            if user_choice == 'y':
-                # Run connection logic and update settings
-                lighting["hue_bridge_ip_address"] = guide_user_to_connect_hue_bridge()
-                settings["lighting"] = lighting  # Update settings dictionary
-                save_settings(file_path, settings)  # Save updated settings to file
-                change_lights = True
-            else:
-                if verbose: print("    ⚠️ No Hue Bridge IP address provided. Some features may not work.")
-        else:
-            print(f"    Hue bridge IP: {lighting.get("hue_bridge_ip_address")}")
+        # Detect Home Assistant config first
+        if lighting.get("ha_url") and lighting.get("ha_token") and lighting.get("ha_scene_id"):
+            lighting["use_ha"] = True
+            print(f"    Home Assistant URL: {lighting['ha_url']}")
+            print(f"    HA Scene ID: {lighting['ha_scene_id']}")
             change_lights = True
-
-        # check for missing scene ID
-        if not lighting.get("hue_scene_id"):
-            scene_id = guide_user_to_lighting_scene_id()
-            if scene_id is None:
-                if verbose: print("    ⚠️ Hue scene ID is missing. No hue automation will take place.")
-                change_lights = False
-            else:
-                lighting["hue_scene_id"] = scene_id
-                save_settings(file_path, settings)  # Save updated settings to file
-                change_lights = True
         else:
-            print(f"    Hue scene ID: {lighting.get("hue_scene_id")}")
+            # Fallback to Hue integration
+            lighting["use_hue"] = True
+            if not lighting.get("hue_bridge_ip_address"):
+                if verbose: print("    ❌ Hue Bridge IP address is missing.")
+                user_choice = input("Would you like to connect a Hue Bridge now? (y/n): ").strip().lower()
+                if user_choice == 'y':
+                    lighting["hue_bridge_ip_address"] = guide_user_to_connect_hue_bridge()
+                    settings["lighting"] = lighting
+                    save_settings(file_path, settings)
+                    change_lights = True
+                else:
+                    if verbose: print("    ❌ No Hue Bridge IP address provided. Some features may not work.")
+            else:
+                print(f"    Hue bridge IP: {lighting.get('hue_bridge_ip_address')}")
+                change_lights = True
+            # Check for missing Hue scene ID
+            if not lighting.get("hue_scene_id"):
+                scene_id = guide_user_to_lighting_scene_id()
+                if scene_id is None:
+                    if verbose: print("    ❌ Hue scene ID is missing. No hue automation will take place.")
+                    change_lights = False
+                else:
+                    lighting["hue_scene_id"] = scene_id
+                    save_settings(file_path, settings)
+                    change_lights = True
+            else:
+                print(f"    Hue scene ID: {lighting.get('hue_scene_id')}")
 
         midi = settings.get("midi", midi)
         # check for missing MIDI
         if not midi.get("device") or not midi.get("channel") or not midi.get("note") or not midi.get("duration"):
             midi = guide_user_to_enter_midi_data(midi)
             if midi.get("device") is None or midi.get("channel") is None or midi.get("note") is None or midi.get("duration") is None:
-                if verbose: print("    ⚠️  MIDI information is missing. No MIDI automation will take place.")
+                if verbose: print("    ❌  MIDI information is missing. No MIDI automation will take place.")
                 play_sound = False
             else:
                 play_sound = True
                 print(f"    MIDI:")
-                print(f"        Device: {midi.get("device")}")
-                print(f"        Channel: {midi.get("channel")}")
-                print(f"        Note: {midi.get("note")}")
-                print(f"        Duration: {midi.get("duration")}")
+                print(f"        Device: {midi.get('device')}")
+                print(f"        Channel: {midi.get('channel')}")
+                print(f"        Note: {midi.get('note')}")
+                print(f"        Duration: {midi.get('duration')}")
                 settings["midi"] = midi # update midi dictionary
                 save_settings(file_path,settings) # save to settings file
                 print(f"    saved to {file_path}")
         else:
             play_sound = True
             print(f"    MIDI:")
-            print(f"        Device: {midi.get("device")}")
-            print(f"        Channel: {midi.get("channel")}")
-            print(f"        Note: {midi.get("note")}")
-            print(f"        Duration: {midi.get("duration")}")
+            print(f"        Device: {midi.get('device')}")
+            print(f"        Channel: {midi.get('channel')}")
+            print(f"        Note: {midi.get('note')}")
+            print(f"        Duration: {midi.get('duration')}")
         
         if verbose: print("    ✅  Settings loaded successfully.")
     except FileNotFoundError:
-        if verbose: print(f"    ⚠️  Error: Settings file '{file_path}' was not found.")
+        if verbose: print(f"    ❌  Error: Settings file '{file_path}' was not found.")
     except json.JSONDecodeError:
-        if verbose: print(f"    ⚠️  Error: Settings file '{file_path}' contains invalid JSON.")
+        if verbose: print(f"    ❌  Error: Settings file '{file_path}' contains invalid JSON.")
     except Exception as e:
-        if verbose: print(f"    ⚠️  An unexpected error occurred: {e}")
+        if verbose: print(f"    ❌  An unexpected error occurred: {e}")
 
 def save_settings(file_path, settings, verbose = True):
     if verbose: print(f"Saving new setting: {settings}")
@@ -381,7 +440,7 @@ def save_settings(file_path, settings, verbose = True):
             json.dump(settings, file, indent=4)
         if verbose: print(f"    💾 Settings saved to {file_path}.")
     except Exception as e:
-        if verbose: print(f"    ⚠️ Error: Unable to save settings to {file_path}: {e}")
+        if verbose: print(f"    ❌ Error: Unable to save settings to {file_path}: {e}")
 
 def guide_user_to_connect_hue_bridge(verbose = True):
     if verbose: print('    Scanning for available bridges:')

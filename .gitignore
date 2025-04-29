@@ -1,4 +1,5 @@
 *.json
+run_meeting-start-reminder.sh
 .DS_Store
 old_scripts
 .python-version

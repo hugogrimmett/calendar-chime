@@ -6,6 +6,10 @@
   "lighting": {
     "hue_bridge_ip_address": "xxx.xxx.xxx.xx:xx",
     "hue_scene_id": "abcdefghijkl"
+    OR
+    "ha_url": "http://xxx.xxx.xxx.xx:xx",
+    "ha_token": "my_ha_token",
+    "ha_scene_id": "my_ha_scene_id"
   },
   "midi": {
     "device": "my_midi_device",
