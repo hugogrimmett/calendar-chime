@@ -237,58 +237,62 @@ def getNextEvent():
 def continuous_event_check():
     if (debug): print("Continuous event check started", flush=True)
     global next_event, next_start_time, event_triggered, lighting, midi, hue_bridge, play_sound, change_lights
-    tolerance_seconds = 5
     warning_time_seconds = 15
 
     while True:
-        with lock:
-            now = datetime.datetime.now(pytz.utc)
-            if next_event:
-                time_diff = (next_start_time - now).total_seconds()
-                if 0 <= time_diff <= warning_time_seconds:
-                    if not event_triggered:
-                        print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
-                        if play_sound:
-                            try:
-                                bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
-                            except Exception as e:
-                                print(f'❌  ERROR: could not play a sound: {e}')
-                        if change_lights:
-                            if lighting.get("use_ha"):
-                                # activate HA scene
-                                import requests
-                                url = f"{lighting['ha_url']}/api/services/scene/turn_on"
-                                headers = {
-                                    "Authorization": f"Bearer {lighting['ha_token']}",
-                                    "Content-Type": "application/json"
-                                }
-                                payload = {"entity_id": lighting['ha_scene_id']}
-                                response = requests.post(url, headers=headers, json=payload)
-                                if response.status_code == 200:
-                                    print("Home Assistant scene activated successfully.")
-                                else:
-                                    print(f"Failed to activate Home Assistant scene: {response.text}")
-                            else:
+        try:
+            with lock:
+                now = datetime.datetime.now(pytz.utc)
+                if next_event:
+                    time_diff = (next_start_time - now).total_seconds()
+                    if 0 <= time_diff <= warning_time_seconds:
+                        if not event_triggered:
+                            print(f'🔔🎥 {next_event["summary"]} is starting now! 🎥🔔')
+                            if play_sound:
                                 try:
-                                    # activate hue scene
-                                    hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
+                                    bong(1, midi.get("device"), midi.get("channel"), midi.get("note"), midi.get("duration"))
                                 except Exception as e:
-                                    print(f'❌  ERROR: could not turn the lights on: {e}')
+                                    print(f'❌  ERROR: could not play a sound: {e}')
+                            if change_lights:
+                                if lighting.get("use_ha"):
+                                    try:
+                                        import requests
+                                        url = f"{lighting['ha_url']}/api/services/scene/turn_on"
+                                        headers = {
+                                            "Authorization": f"Bearer {lighting['ha_token']}",
+                                            "Content-Type": "application/json"
+                                        }
+                                        payload = {"entity_id": lighting['ha_scene_id']}
+                                        response = requests.post(url, headers=headers, json=payload, timeout=5)
+                                        if response.status_code == 200:
+                                            print("Home Assistant scene activated successfully.")
+                                        else:
+                                            print(f"❌  Failed to activate Home Assistant scene ({response.status_code}): {response.text}")
+                                    except Exception as e:
+                                        print(f'❌  ERROR: could not activate HA scene: {e}')
+                                else:
+                                    try:
+                                        hue_bridge.activate_scene(1, lighting.get("hue_scene_id"), 0)
+                                    except Exception as e:
+                                        print(f'❌  ERROR: could not turn the lights on: {e}')
+                            else:
+                                if (debug): print(f"❌  ERROR: no lighting scene configured")
+                            event_triggered = True
                         else:
-                            if verbose: print(f"❌  ERROR: no hue bridge scene ID")
-                        event_triggered = True  # Set the flag to indicate the event action has been triggered
+                            if (debug): print('event already triggered')
+                    elif time_diff < 0:
+                        # past event start — clear
+                        next_event = None
+                        next_start_time = None
+                        event_triggered = False
                     else:
-                        if (debug): print('event already triggered')
-                elif time_diff < 2:
-                    # if we are past the warning window, clear the event
-                    next_event = None
-                    next_start_time = None
-                    event_triggered = False  # Reset the trigger flag
+                        if (debug): print(f"Event '{next_event['summary']}' is not yet within the time window ({warning_time_seconds}s).")
                 else:
-                    if (debug): print(f"Event '{next_event['summary']}' is not yet within the time window ({warning_time_seconds}s).")
-            else:
-                if (debug): print("No upcoming event found.")
-        time.sleep(1)  # Check every second
+                    if (debug): print("No upcoming event found.")
+        except Exception as e:
+            # Belt-and-braces: never let this thread die.
+            print(f'❌  continuous_event_check loop error (continuing): {e}')
+        time.sleep(1)
 
 
 def bong(n, device, channel, note, duration):
@@ -324,18 +328,30 @@ def load_credentials(email, create_if_not_existent=False, verbose=True):
                     if verbose: print(f"   🔄 Token refreshed and saved to {token_file}")
                     return creds
                 except Exception as e:
-                    if verbose: print(f"   ❌ Error refreshing token: {e}")
-                    return None
+                    if verbose: print(f"   ❌ Error refreshing token: {e} — will attempt re-auth")
+                    # fall through to the re-auth block below
         except Exception as e:
-            if verbose: print(f"   ⚠️ Error reading token file {token_file}: {e}")
-            return None
+            if verbose: print(f"   ⚠️ Error reading token file {token_file}: {e} — will attempt re-auth")
+            # fall through to the re-auth block below
 
     # Token file does not exist, handle accordingly
     if create_if_not_existent and os.path.exists(credentials_file):
         if verbose: print(f"   Token file not found, attempting to create from {credentials_file}")
         try:
             flow = InstalledAppFlow.from_client_secrets_file(credentials_file, SCOPES)
-            creds = flow.run_local_server(port=0)
+            prompt = (
+                "\n"
+                "============================================================\n"
+                f"🔐  OAuth authorisation needed for {email}\n"
+                "👉  A browser window should open automatically.\n"
+                "    If not, copy this URL into your browser:\n"
+                "\n"
+                "    {url}\n"
+                "\n"
+                "    (waiting for you to complete the flow...)\n"
+                "============================================================\n"
+            )
+            creds = flow.run_local_server(port=0, authorization_prompt_message=prompt)
             with open(token_file, 'w') as token:
                 token.write(creds.to_json())
             if verbose: print(f"   ✅ New token saved to {token_file}")
@@ -344,7 +360,7 @@ def load_credentials(email, create_if_not_existent=False, verbose=True):
             if verbose: print(f"   ❌ Error generating token from {credentials_file}: {e}")
             return None
 
-    print(f"   ❌ No valid token or credentials available for {email}.")
+    if verbose: print(f"   ❌ No valid token or credentials available for {email}.")
     return None
 
 def load_settings(file_path="settings.json", verbose=True):
