@@ -201,13 +201,29 @@ def getNextEvent():
                     else:
                         continue
 
-                    if 'attendees' in event and any(attendee['email'] == email and attendee['responseStatus'] == 'accepted' for attendee in event['attendees']):
-                        if start_dt_utc > now_dt_utc:
-                            # Compare to find the earliest event across all accounts
-                            if earliest_event is None or start_dt_utc < earliest_start_time:
-                                earliest_event = event
-                                earliest_start_time = start_dt_utc
-                                next_email = email
+                    attendees = event.get('attendees', [])
+                    if not attendees:
+                        continue
+                    # I must have accepted
+                    if not any(a.get('email') == email and a.get('responseStatus') == 'accepted' for a in attendees):
+                        continue
+                    # At least one other human attendee must not have declined
+                    others_still_in = [
+                        a for a in attendees
+                        if a.get('email') != email
+                        and a.get('responseStatus') != 'declined'
+                        and not a.get('resource', False)
+                    ]
+                    if not others_still_in:
+                        if (debug): print(f"   skipping '{event.get('summary','?')}' — no other participants (all declined or only me)")
+                        continue
+                    if start_dt_utc <= now_dt_utc:
+                        continue
+                    # Compare to find the earliest event across all accounts
+                    if earliest_event is None or start_dt_utc < earliest_start_time:
+                        earliest_event = event
+                        earliest_start_time = start_dt_utc
+                        next_email = email
             
             # Update global variables with the earliest event
             previous_next_event = next_event
