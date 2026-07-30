@@ -20,7 +20,8 @@ Packages required:
 pip install -r requirements.txt
 ``` 
 
-Format for settings.json:
+Format for settings.json — lighting can be either Philips Hue OR Home Assistant:
+
 ```
 {
   "email_addresses": [
@@ -38,6 +39,34 @@ Format for settings.json:
     "duration": 0.2
   }
 }
+```
+
+For Home Assistant instead of Hue, replace the `lighting` block:
+
+```
+  "lighting": {
+    "ha_url": "http://192.168.x.x:8123",
+    "ha_token": "<long-lived access token from HA>",
+    "ha_scene_id": "scene.your_scene_name"
+  },
+```
+
+## Home Assistant + VPN gotcha
+
+If you use a full-tunnel VPN (ProtonVPN, etc.), avoid using `homeassistant.local`
+in `ha_url`. mDNS may resolve HA to an IP on a subnet that isn't your Mac's own
+LAN (e.g. a Deco IoT-network subnet), and even with "Allow LAN connections"
+enabled the VPN will send that traffic into the tunnel because the destination
+isn't on your local /24.
+
+Fix: put HA's LAN IP directly in `ha_url` (e.g. `http://192.168.0.63:8123`) and
+reserve that address in your router's DHCP settings so it doesn't drift. In the
+Deco app: **More → Advanced → Address Reservation → Add**.
+
+To confirm which IP is actually on your LAN when HA has multiple:
+
+```
+route get <candidate-ip>   # should show interface: enX (your Wi-Fi), not utunN
 ```
 
 The latest script is meeting-start-reminder.py:
