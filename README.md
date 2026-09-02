@@ -3,10 +3,11 @@ Instructions are for mac.
 
 Written by Hugo Grimmett
 
-Uses python 3.8.15
+Requires python 3.10 or newer (verified on 3.13). Several pinned packages —
+including urllib3, protobuf, aiohttp and requests — declare `requires_python >=3.10`,
+so older interpreters will fail at `pip install`.
 ```
 brew install python
-pyenv install 3.8.15
 ```
 
 Recommended: create a virtual environment for this project
