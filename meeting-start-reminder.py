@@ -11,6 +11,18 @@
 
 from __future__ import print_function
 
+import sys
+
+# Must run before the third-party imports below: on a too-old interpreter those
+# packages won't have installed, and the resulting ModuleNotFoundError hides the
+# real cause.
+if sys.version_info < (3, 10):
+    sys.exit(
+        f"calendar-chime requires Python 3.10+ "
+        f"(running {sys.version_info.major}.{sys.version_info.minor}). "
+        f"Pinned deps in requirements.txt declare requires_python >=3.10."
+    )
+
 import pdb
 
 import datetime
